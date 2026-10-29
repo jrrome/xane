@@ -48,7 +48,7 @@ public enum Command: Equatable, Sendable {
     case resize(delta: Double, axis: Axis?), resetLayout
     case view(TagArg), viewToggle(UInt32), tag(UInt32), tagToggle(UInt32)
     case focusOutput(OutputTarget), sendToOutput(OutputTarget)
-    case retile, reload, pause, resume, togglePause, quit
+    case retile, reload, pause, resume, togglePause, quit, settings
     case set(String, [String])
     case rule(Rule), ruleClear
     case bind(KeyCombo, String), unbind(KeyCombo?)
@@ -57,7 +57,7 @@ public enum Command: Equatable, Sendable {
 
     /// Commands that only read state.
     public var isReadOnly: Bool {
-        switch self { case .query, .subscribe: return true; default: return false }
+        switch self { case .query, .subscribe, .settings: return true; default: return false }
     }
 
     public static let names = [
@@ -242,6 +242,7 @@ public enum CommandParser {
         case "resume": return .resume
         case "toggle-pause": return .togglePause
         case "quit", "exit": return .quit
+        case "settings", "preferences": return .settings
         case "set":
             let opt = try arg(0, "option").lowercased()
             guard args.count >= 2 else { throw CommandError.missingArgument("value for \(opt)") }

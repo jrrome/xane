@@ -62,32 +62,75 @@ final class BorderOverlay {
     }
 }
 
-/// Menu bar item: focused tags and layout at a glance, and a few actions.
-final class StatusBar: NSObject {
+/// Menu bar item: focused desktop and layout at a glance, quick switches and the settings window.
+final class StatusBar: NSObject, NSMenuDelegate {
+    /// What the menu shows checked, read each time it opens.
+    struct State {
+        var layout: LayoutKind?
+        var desktop: Int?
+        var focusFollowsMouse = false
+        var border = false
+    }
+
     var onCommand: ((String) -> Void)?
+    var onSetOption: ((String, [String]) -> Void)?
+    var onSettings: (() -> Void)?
     var onOpenConfig: (() -> Void)?
     var onAccessibility: (() -> Void)?
+    var state: (() -> State)?
     private var item: NSStatusItem?
     private let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    private let problemsLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let problemsLine = NSMenuItem(title: "", action: #selector(StatusBar.settings), keyEquivalent: "")
     private let pauseItem = NSMenuItem(title: "Pause", action: #selector(StatusBar.togglePause), keyEquivalent: "")
+    private let layoutMenu = NSMenu()
+    private let desktopMenu = NSMenu()
+    private let followItem = NSMenuItem(title: "Focus Follows Pointer", action: #selector(StatusBar.toggleFollow), keyEquivalent: "")
+    private let borderItem = NSMenuItem(title: "Window Border", action: #selector(StatusBar.toggleBorder), keyEquivalent: "")
     private var lastTitle = ""
 
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .medium)
         let menu = NSMenu()
+        menu.delegate = self
         statusLine.isEnabled = false
-        problemsLine.isEnabled = false
+        problemsLine.target = self
         problemsLine.isHidden = true
         menu.addItem(statusLine)
         menu.addItem(problemsLine)
         menu.addItem(.separator())
+        for k in LayoutKind.allCases {
+            let i = NSMenuItem(title: "\(Self.glyph(k))  \(k.rawValue.capitalized)", action: #selector(layout(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = k.rawValue
+            layoutMenu.addItem(i)
+        }
+        let layouts = NSMenuItem(title: "Layout", action: nil, keyEquivalent: "")
+        layouts.submenu = layoutMenu
+        menu.addItem(layouts)
+        for n in 1...9 {
+            let i = NSMenuItem(title: "Desktop \(n)", action: #selector(view(_:)), keyEquivalent: "")
+            i.target = self
+            i.tag = n
+            desktopMenu.addItem(i)
+        }
+        let desktops = NSMenuItem(title: "Desktop", action: nil, keyEquivalent: "")
+        desktops.submenu = desktopMenu
+        menu.addItem(desktops)
         menu.addItem(entry("Retile", #selector(retile)))
         pauseItem.target = self
         menu.addItem(pauseItem)
+        menu.addItem(.separator())
+        followItem.target = self
+        borderItem.target = self
+        menu.addItem(followItem)
+        menu.addItem(borderItem)
+        menu.addItem(.separator())
+        let settings = entry("Settings…", #selector(settings))
+        settings.keyEquivalent = ","
+        menu.addItem(settings)
+        menu.addItem(entry("Open Config File…", #selector(openConfig)))
         menu.addItem(entry("Reload Config", #selector(reload)))
-        menu.addItem(entry("Open Config…", #selector(openConfig)))
         menu.addItem(.separator())
         menu.addItem(entry("Accessibility Settings…", #selector(accessibility)))
         menu.addItem(entry("Quit XaneWM", #selector(quit)))
@@ -113,6 +156,14 @@ final class StatusBar: NSObject {
         problemsLine.title = problems.isEmpty ? "" : "⚠︎ Config: \(problems.count) problem(s) — first: \(problems[0])"
     }
 
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let s = state?() else { return }
+        for i in layoutMenu.items { i.state = (i.representedObject as? String) == s.layout?.rawValue ? .on : .off }
+        for i in desktopMenu.items { i.state = i.tag == s.desktop ? .on : .off }
+        followItem.state = s.focusFollowsMouse ? .on : .off
+        borderItem.state = s.border ? .on : .off
+    }
+
     static func glyph(_ k: LayoutKind) -> String {
         switch k {
         case .dwindle: return "◰"
@@ -124,6 +175,11 @@ final class StatusBar: NSObject {
         }
     }
 
+    @objc private func layout(_ sender: NSMenuItem) { onCommand?("layout \(sender.representedObject as? String ?? "next")") }
+    @objc private func view(_ sender: NSMenuItem) { onCommand?("view \(sender.tag)") }
+    @objc private func toggleFollow() { onSetOption?("focus-follows-mouse", [followItem.state == .on ? "off" : "on"]) }
+    @objc private func toggleBorder() { onSetOption?("border", [borderItem.state == .on ? "off" : "on"]) }
+    @objc private func settings() { onSettings?() }
     @objc private func retile() { onCommand?("retile") }
     @objc private func togglePause() { onCommand?("toggle-pause") }
     @objc private func reload() { onCommand?("reload") }

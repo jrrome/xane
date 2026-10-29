@@ -210,6 +210,7 @@ extension Compositor {
         case .resume: pending.paused = false; return [.retile]
         case .togglePause: pending.paused.toggle(); return pending.paused ? [] : [.retile]
         case .quit: return [.quit]
+        case .settings: return [.openSettings]
 
         case .set(let name, let values):
             do { try pending.options.set(name, values) } catch { throw CommandError.invalidArgument("\(error)") }

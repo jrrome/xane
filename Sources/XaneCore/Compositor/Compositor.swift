@@ -59,6 +59,7 @@ public enum Effect: Equatable, Sendable {
     case reply(String)
     case subscribe
     case retile
+    case openSettings
     /// `desktops spaces`: show macOS desktop N (Mission Control numbering), or the previous one.
     case viewSpace(Int?)
     /// `desktops spaces`: carry a window to macOS desktop N.

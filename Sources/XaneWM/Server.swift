@@ -17,6 +17,10 @@ final class Server: WorkerDelegate {
     private let permissions = Permissions()
     private let store = Store()
     private var ipc: SocketServer?
+    private lazy var settings = SettingsWindow(model: SettingsModel(configPath: configPath))
+    /// Options changed from the settings window, written to the config file shortly after.
+    private var optionWrites: [(name: String, values: [String])] = []
+    private var optionWrite: DispatchWorkItem?
     private var signalSources: [DispatchSourceSignal] = []
     private var observers: [NSObjectProtocol] = []
 
@@ -79,6 +83,10 @@ final class Server: WorkerDelegate {
         statusBar.onCommand = { [weak self] line in self?.run(line, client: nil) }
         statusBar.onOpenConfig = { [weak self] in self?.openConfig() }
         statusBar.onAccessibility = { [weak self] in self?.permissions.openSettings() }
+        statusBar.onSetOption = { [weak self] name, values in self?.setOption(name, values) }
+        statusBar.onSettings = { [weak self] in self?.settings.show() }
+        statusBar.state = { [weak self] in self?.menuState() ?? .init() }
+        connectSettings()
         if permissions.isTrusted {
             start()
         } else {
@@ -160,6 +168,7 @@ final class Server: WorkerDelegate {
     // MARK: - Config and commands
 
     private func loadConfig(initial: Bool) {
+        flushOptionWrites()
         let path = configPath
         let fm = FileManager.default
         if !fm.fileExists(atPath: path) {
@@ -176,7 +185,7 @@ final class Server: WorkerDelegate {
         var errors = problems.map(\.description)
         for cmd in commands {
             switch cmd {
-            case .quit, .reload, .subscribe, .query: continue
+            case .quit, .reload, .subscribe, .query, .settings: continue
             case .exec(let c): if initial { spawn(c) }; continue
             default: break
             }
@@ -194,13 +203,18 @@ final class Server: WorkerDelegate {
         }
         statusBar.set(problems: errors)
         for e in errors { Log.main.error("Config: \(e, privacy: .public)") }
+        let bound = Set(compositor.pending.bindings.keys)
+        settings.model.load(bindings: ConfigEditor(text).bindings, rules: compositor.pending.rules, problems: errors,
+                            conflicts: Set(SystemShortcuts.conflicts(with: bound).map(\.combo)))
+        settings.model.load(options: compositor.pending.options, paused: compositor.pending.paused)
         syncInput()
         hotkeys.retryFailed()
         scheduleCommit(forceAll: !initial)
     }
 
     private func syncInput() {
-        hotkeys.sync(Set(compositor.pending.bindings.keys))
+        // While the settings window records a shortcut, the keys must reach it.
+        hotkeys.sync(settings.model.recording != nil ? [] : Set(compositor.pending.bindings.keys))
         mouse.trackMoves(compositor.pending.options.focusFollowsMouse)
     }
 
@@ -267,6 +281,8 @@ final class Server: WorkerDelegate {
             Log.main.info("\(json, privacy: .public)")
         case .subscribe:
             if let client { client.subscribe(greeting: Wire.ok()); return true }
+        case .openSettings:
+            settings.show()
         case .viewSpace(let n):
             try viewDesktop(n)
         case .moveToSpace(let id, let n):
@@ -374,6 +390,74 @@ final class Server: WorkerDelegate {
         do { try p.run() } catch {
             Log.main.error("exec failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    // MARK: - Settings window and menu
+
+    private func connectSettings() {
+        let m = settings.model
+        m.onCommand = { [weak self] line in self?.run(line, client: nil) }
+        m.onOpenConfig = { [weak self] in self?.openConfig() }
+        m.onSetOption = { [weak self] name, values in self?.setOption(name, values) }
+        m.onRecording = { [weak self] _ in self?.syncInput() }
+        m.onSetBinding = { [weak self] old, new, command in
+            self?.editConfig { e in
+                if let old, old != new { e.setBinding(old, nil) }
+                if let new { e.setBinding(new, command) }
+            }
+        }
+        m.onSetRules = { [weak self] rules in self?.editConfig { $0.setRules(rules) } }
+    }
+
+    /// Applies an option now and writes it to the config file a moment later (sliders send many).
+    private func setOption(_ name: String, _ values: [String]) {
+        run((["set", name] + values.map(Tokenizer.quote)).joined(separator: " "), client: nil)
+        optionWrites.removeAll { $0.name == name }
+        optionWrites.append((name, values))
+        optionWrite?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.flushOptionWrites() }
+        optionWrite = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+    }
+
+    private func flushOptionWrites() {
+        optionWrite?.cancel()
+        optionWrite = nil
+        guard !optionWrites.isEmpty else { return }
+        let writes = optionWrites
+        optionWrites = []
+        writeConfig { e in for w in writes { e.setOption(w.name, w.values) } }
+    }
+
+    /// Rewrites the config file and reloads it.
+    private func editConfig(_ change: (inout ConfigEditor) -> Void) {
+        flushOptionWrites()
+        if writeConfig(change) { loadConfig(initial: false) }
+    }
+
+    @discardableResult
+    private func writeConfig(_ change: (inout ConfigEditor) -> Void) -> Bool {
+        // Through symlinks, so a config kept in a dotfiles repo stays a link.
+        let url = URL(fileURLWithPath: configPath).resolvingSymlinksInPath()
+        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? Config.defaultText
+        var e = ConfigEditor(text)
+        change(&e)
+        guard e.text != text else { return false }
+        do { try e.text.write(to: url, atomically: true, encoding: .utf8) } catch {
+            Log.main.error("Could not write the config: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+        return true
+    }
+
+    private func menuState() -> StatusBar.State {
+        let s = compositor.current
+        let oid = s.focusedOutput ?? s.outputOrder.first
+        let o = oid.flatMap { s.outputs[$0] }
+        let desktop = s.options.desktops == .spaces
+            ? o.flatMap { desktops[$0.uuid]?.current }
+            : o.flatMap { $0.tags.nonzeroBitCount == 1 ? Tags.first($0.tags) : nil }
+        return .init(layout: o?.layout, desktop: desktop, focusFollowsMouse: s.options.focusFollowsMouse, border: s.options.border)
     }
 
     private func openConfig() {
@@ -901,6 +985,7 @@ final class Server: WorkerDelegate {
         let status = reason.map { "Not tiling: \($0)" }
             ?? "\(o.layout.rawValue) · \(s.tiled(on: oid).count) tiled · \(s.windows.count) windows"
         statusBar.set(title: title, status: status, paused: s.paused)
+        settings.model.load(options: compositor.pending.options, paused: s.paused)
     }
 }
 #endif

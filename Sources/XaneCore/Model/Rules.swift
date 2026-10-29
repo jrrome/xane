@@ -65,10 +65,10 @@ public struct Rule: Equatable, @unchecked Sendable {
         }
         let m = matchers.map { m -> String in
             switch m {
-            case .appID(let v): return "app-id \(v)"
-            case .appName(let v): return "app-name \"\(v)\""
-            case .title(let v): return "title \"\(v)\""
-            case .subrole(let v): return "subrole \(v)"
+            case .appID(let v): return "app-id \(Tokenizer.quote(v))"
+            case .appName(let v): return "app-name \(Tokenizer.quote(v))"
+            case .title(let v): return "title \(Tokenizer.quote(v))"
+            case .subrole(let v): return "subrole \(Tokenizer.quote(v))"
             }
         }
         return ([a] + m).joined(separator: " ")

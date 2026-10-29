@@ -100,6 +100,12 @@ the ratio.
 
 ### Configuration
 
+Everything can be set from the menu bar item: switch layout and desktop, toggle focus-follows-pointer
+and the border, and open **Settings… (⌘,)** for the rest (general, layout, mouse, border, keyboard
+shortcuts and app rules), or run `xanectl settings`. The settings window edits the config file
+itself: each change rewrites only its own line, keeps your comments and applies at once, and edits
+you make in the file show up there after a reload.
+
 The config lives in `~/.config/xanewm/config` and is created, fully commented, on first launch. Every
 line is a command, so anything you can bind you can also run from `xanectl`:
 
@@ -156,7 +162,7 @@ focus-output next|prev|left|right|N     send-to-output next|prev|left|right|N
 set <option> <value>    rule float|tile|ignore|tags N|output N  app-id X [title REGEX] [subrole S]
 bind <keys> <command…>    unbind <keys>|all    rule-clear
 query windows|outputs|tree|state|bindings|rules|options    subscribe
-exec <shell>    retile    reload    pause|resume|toggle-pause    quit
+exec <shell>    retile    reload    pause|resume|toggle-pause    settings    quit
 ```
 
 Separate several commands with `;` to apply them as a single commit.
@@ -209,8 +215,8 @@ Accessibility:
 
 | Path | Contents |
 |---|---|
-| `Sources/XaneCore` | Pure, cross-platform and tested. `Layout/` (split tree, solver, generators), `Compositor/` (state, commit, configure/ack, navigation, persistence, minimum-size learning), `Command/` (parser and config), `IPC/` (protocol and socket server). |
-| `Sources/XaneWM` | The macOS process. `Server.swift` orchestrates; `Platform/` holds the per-app `AppWorker` threads, AX helpers, windows and displays, hotkeys and mouse, and the border and menu bar item. |
+| `Sources/XaneCore` | Pure, cross-platform and tested. `Layout/` (split tree, solver, generators), `Compositor/` (state, commit, configure/ack, navigation, persistence, minimum-size learning), `Command/` (parser, config and the config editor behind the settings window), `IPC/` (protocol and socket server). |
+| `Sources/XaneWM` | The macOS process. `Server.swift` orchestrates; `Platform/` holds the per-app `AppWorker` threads, AX helpers, windows and displays, hotkeys and mouse, and the border and menu bar item. `UI/` is the SwiftUI settings window. |
 | `Sources/xanectl` | The IPC client. |
 
 ### Layout engine
