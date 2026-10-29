@@ -146,6 +146,18 @@ enum SystemShortcuts {
         }
     }
 
+    /// Several shortcuts in a row, 80 ms apart: macOS drops Space switches pressed in the same
+    /// instant, but queues them a moment apart. `done` runs after the last one.
+    static func press(_ keys: [KeyCombo], then done: (() -> Void)? = nil) {
+        for (i, key) in keys.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08 * Double(i)) {
+                press(key)
+                if i == keys.count - 1 { done?() }
+            }
+        }
+        if keys.isEmpty { done?() }
+    }
+
     /// NSEvent.ModifierFlags raw values, as stored in the preferences.
     private static func modifiers(_ flags: Int) -> Modifiers {
         var m: Modifiers = []

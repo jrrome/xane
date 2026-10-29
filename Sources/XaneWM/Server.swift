@@ -54,6 +54,10 @@ final class Server: WorkerDelegate {
     private var screenChange: DispatchWorkItem?
     /// `desktops spaces`: macOS desktop shown per display (by UUID) and the one before it.
     private var desktops: [String: (current: Int?, previous: Int?)] = [:]
+    /// Switches XaneWM started that macOS has not finished, per display. macOS ignores a switch
+    /// pressed while it animates another one, so the next request waits here until it is over.
+    private var heading: [String: (desktop: Int, until: TimeInterval)] = [:]
+    private var queuedDesktop: [String: DesktopTarget] = [:]
     /// A window is being carried to another Space with synthetic mouse events: they are ours.
     private var carrying = false
 
@@ -295,12 +299,28 @@ final class Server: WorkerDelegate {
 
     private func trackDesktops() {
         for o in compositor.current.outputs.values {
-            let now = NativeSpaces.current(on: o.uuid)
+            let shown = NativeSpaces.current(on: o.uuid)
+            if let h = heading[o.uuid] {
+                // Desktops passed on the way are not "the previous one".
+                guard shown == h.desktop || now >= h.until else { continue }
+                heading[o.uuid] = nil
+                if let next = queuedDesktop.removeValue(forKey: o.uuid) {
+                    DispatchQueue.main.async { [weak self] in
+                        do { try self?.showDesktop(next, on: o.uuid) } catch {
+                            Log.input.error("desktop: \(String(describing: error), privacy: .public)")
+                        }
+                    }
+                }
+            }
             let old = desktops[o.uuid]
-            guard old?.current != now else { continue }
-            desktops[o.uuid] = (now, old?.current ?? old?.previous)
-            if let n = now { ipc?.broadcast("{\"desktop\":\(n),\"event\":\"desktop\",\"output\":\(o.id)}") }
+            guard old?.current != shown else { continue }
+            desktops[o.uuid] = (shown, old?.current ?? old?.previous)
+            if let n = shown { ipc?.broadcast("{\"desktop\":\(n),\"event\":\"desktop\",\"output\":\(o.id)}") }
         }
+    }
+
+    private func isSwitching(_ uuid: String) -> Bool {
+        heading[uuid].map { now < $0.until } ?? false
     }
 
     /// The desktop a target means on a display, or nil when there is nothing to do.
@@ -313,15 +333,30 @@ final class Server: WorkerDelegate {
         case .back: return previous
         // At either end there is nowhere to go, which is not an error.
         case .left, .right:
-            guard let here = NativeSpaces.desktops(on: uuid), let cur = here.current else { return nil }
+            guard let here = NativeSpaces.desktops(on: uuid), let cur = shown else { return nil }
             let n = t == .left ? cur - 1 : cur + 1
             return here.range.contains(n) ? n : nil
         }
     }
 
-    private func showDesktop(_ t: DesktopTarget) throws {
-        guard let uuid = focusedDisplay, let n = resolve(t, on: uuid), n != NativeSpaces.current(on: uuid) else { return }
-        for key in try NativeSpaces.keys(toShow: n, on: uuid) { SystemShortcuts.press(key) }
+    private func showDesktop(_ t: DesktopTarget, on display: String? = nil) throws {
+        guard let uuid = display ?? focusedDisplay else { return }
+        if isSwitching(uuid) { queuedDesktop[uuid] = t; return }
+        guard let n = resolve(t, on: uuid) else { return }
+        SystemShortcuts.press(try switchKeys(to: n, on: uuid))
+    }
+
+    /// The keys that take a display to desktop `n`; notes the switch as under way until macOS
+    /// reports it done (or it should have).
+    private func switchKeys(to n: Int, on uuid: String) throws -> [KeyCombo] {
+        guard n != NativeSpaces.current(on: uuid) else { return [] }
+        let keys = try NativeSpaces.keys(toShow: n, from: nil, on: uuid)
+        guard !keys.isEmpty else { return [] }
+        let wait = 0.9 + 0.3 * Double(keys.count)
+        heading[uuid] = (n, now + wait)
+        // In case macOS dropped the keys and no Space change ever arrives.
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait + 0.05) { [weak self] in self?.trackDesktops() }
+        return keys
     }
 
     /// There is no public way to move another app's window to a Space (and the private one needs
@@ -330,8 +365,9 @@ final class Server: WorkerDelegate {
     private func carry(_ id: WindowID, to t: DesktopTarget) throws {
         guard !carrying, let w = compositor.current.windows[id], w.isPresent, !w.nativeFullscreen,
               let uuid = compositor.current.outputs[w.output]?.uuid,
-              let n = resolve(t, on: uuid), n != NativeSpaces.current(on: uuid) else { return }
-        let keys = try NativeSpaces.keys(toShow: n, on: uuid)
+              !isSwitching(uuid), let n = resolve(t, on: uuid), n != NativeSpaces.current(on: uuid),
+              worker(of: id) != nil else { return }
+        let keys = try switchKeys(to: n, on: uuid)
         guard let worker = worker(of: id) else { return }
         carrying = true
         worker.grabPoint(id) { [weak self] p in
@@ -361,15 +397,16 @@ final class Server: WorkerDelegate {
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                for key in keys { SystemShortcuts.press(key) }
-                // Let go once the switch animation is over (longer when it crosses several desktops).
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + 0.3 * Double(keys.count - 1)) {
-                    post(.leftMouseUp, held)
-                    _ = CGWarpMouseCursorPosition(back)
-                    _ = CGAssociateMouseAndMouseCursorPosition(1)
-                    self.carrying = false
-                    self.presenceDirty = true
-                    self.scheduleCommit()
+                SystemShortcuts.press(keys) {
+                    // Let go once the switch animation is over.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        post(.leftMouseUp, held)
+                        _ = CGWarpMouseCursorPosition(back)
+                        _ = CGAssociateMouseAndMouseCursorPosition(1)
+                        self.carrying = false
+                        self.presenceDirty = true
+                        self.scheduleCommit()
+                    }
                 }
             }
         }

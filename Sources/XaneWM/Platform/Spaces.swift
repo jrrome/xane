@@ -10,6 +10,9 @@ enum NativeSpaces {
         var uuid: String
         /// Desktops in Mission Control order; fullscreen apps' Spaces are not numbered.
         var desktops: [UInt64]
+        /// Every Space in order, fullscreen apps' included: "Move left/right a space" steps through
+        /// all of them.
+        var spaces: [UInt64]
         var current: UInt64
     }
 
@@ -65,6 +68,7 @@ enum NativeSpaces {
             let spaces = d["Spaces"] as? [[String: Any]] ?? []
             return Display(uuid: d["Display Identifier"] as? String ?? "",
                            desktops: spaces.filter { ($0["type"] as? NSNumber)?.intValue == 0 }.compactMap(id),
+                           spaces: spaces.compactMap(id),
                            current: id(d["Current Space"] as? [String: Any]) ?? 0)
         }
     }
@@ -90,17 +94,26 @@ enum NativeSpaces {
     static func current(on uuid: String) -> Int? { desktops(on: uuid)?.current }
 
     /// Keys that take a display to desktop `n`: its "Switch to Desktop N" shortcut when that is on,
-    /// else "Move left/right a space" as many times as it takes.
-    static func keys(toShow n: Int, on uuid: String) throws -> [KeyCombo] {
+    /// else "Move left/right a space" as many times as it takes from desktop `from` (nil: from the
+    /// Space it shows, which may be a fullscreen app's).
+    static func keys(toShow n: Int, from: Int? = nil, on uuid: String) throws -> [KeyCombo] {
         guard isAvailable else { throw Failure.unavailable }
         guard n >= 1, n <= desktopCount else { throw Failure.noDesktop(n) }
         let shortcuts = SystemShortcuts.enabled()
         if let direct = shortcuts[SystemShortcuts.desktopIDs.lowerBound + n - 1], n <= 9 { return [direct] }
-        guard let here = desktops(on: uuid), let cur = here.current, here.range.contains(n),
-              let step = shortcuts[n > cur ? SystemShortcuts.moveRight : SystemShortcuts.moveLeft] else {
-            throw Failure.shortcutOff(n)
+        let all = displays()
+        var base = 0
+        for d in all {
+            if d.uuid == uuid || all.count == 1 {
+                let desktop = { (k: Int) -> UInt64? in d.desktops.indices.contains(k - base - 1) ? d.desktops[k - base - 1] : nil }
+                guard let target = desktop(n), let start = from.map(desktop) ?? d.current,
+                      let i = d.spaces.firstIndex(of: start), let j = d.spaces.firstIndex(of: target),
+                      let step = shortcuts[j > i ? SystemShortcuts.moveRight : SystemShortcuts.moveLeft] else { break }
+                return Array(repeating: step, count: abs(j - i))
+            }
+            base += d.desktops.count
         }
-        return Array(repeating: step, count: abs(n - cur))
+        throw Failure.shortcutOff(n)
     }
 }
 #endif
