@@ -88,11 +88,11 @@ final class StatusBar: NSObject, NSMenuDelegate {
     private let desktopMenu = NSMenu()
     private let followItem = NSMenuItem(title: "Focus Follows Pointer", action: #selector(StatusBar.toggleFollow), keyEquivalent: "")
     private let borderItem = NSMenuItem(title: "Window Border", action: #selector(StatusBar.toggleBorder), keyEquivalent: "")
-    private var lastTitle = ""
 
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .medium)
+        item.button?.image = Self.icon
+        item.button?.imagePosition = .imageOnly
         let menu = NSMenu()
         menu.delegate = self
         statusLine.isEnabled = false
@@ -132,7 +132,7 @@ final class StatusBar: NSObject, NSMenuDelegate {
         menu.addItem(entry("Quit XaneWM", #selector(quit)))
         item.menu = menu
         self.item = item
-        set(title: "◰", status: "Starting…")
+        set(status: "Starting…", active: false)
     }
 
     private func entry(_ title: String, _ sel: Selector) -> NSMenuItem {
@@ -141,8 +141,10 @@ final class StatusBar: NSObject, NSMenuDelegate {
         return i
     }
 
-    func set(title: String, status: String, paused: Bool = false) {
-        if title != lastTitle { item?.button?.title = title; lastTitle = title }
+    /// The icon is always there; it dims while XaneWM is not tiling.
+    func set(status: String, active: Bool, paused: Bool = false) {
+        if item?.button?.appearsDisabled == active { item?.button?.appearsDisabled = !active }
+        item?.button?.toolTip = "XaneWM — \(status)"
         statusLine.title = status
         pauseItem.title = paused ? "Resume" : "Pause"
     }
@@ -166,6 +168,15 @@ final class StatusBar: NSObject, NSMenuDelegate {
         followItem.state = s.focusFollowsMouse ? .on : .off
         borderItem.state = s.border ? .on : .off
     }
+
+    /// The XaneWM mark (Resources/MenuBarIcon), drawn as a template so it follows the menu bar.
+    static let icon: NSImage = {
+        let image = Bundle.main.image(forResource: "MenuBarIcon")
+            ?? NSImage(systemSymbolName: "xmark.rectangle.fill", accessibilityDescription: nil) ?? NSImage()
+        image.isTemplate = true
+        image.accessibilityDescription = "XaneWM"
+        return image
+    }()
 
     static func glyph(_ k: LayoutKind) -> String {
         switch k {

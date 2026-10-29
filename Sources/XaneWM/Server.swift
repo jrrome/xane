@@ -89,7 +89,7 @@ final class Server: WorkerDelegate {
         if permissions.isTrusted {
             start()
         } else {
-            statusBar.set(title: "⚠︎", status: "Needs Accessibility access")
+            statusBar.set(status: "Needs Accessibility access", active: false)
             Log.main.info("Waiting for Accessibility access")
             permissions.prompt()
             permissions.waitForTrust { [weak self] in self?.start() }
@@ -950,12 +950,11 @@ final class Server: WorkerDelegate {
         let s = compositor.current
         guard let oid = s.focusedOutput ?? s.outputOrder.first, let o = s.outputs[oid] else { return }
         trackDesktops()
-        let tags = desktops[o.uuid]?.current.map(String.init) ?? "∗"
+        let desktop = desktops[o.uuid]?.current.map { "desktop \($0) · " } ?? ""
         let reason = blockers.sorted().first ?? (s.paused ? "paused" : nil)
-        let title = (reason != nil ? "⏸ " : StatusBar.glyph(o.layout) + " ") + tags
         let status = reason.map { "Not tiling: \($0)" }
-            ?? "\(o.layout.rawValue) · \(s.tiled(on: oid).count) tiled · \(s.windows.count) windows"
-        statusBar.set(title: title, status: status, paused: s.paused)
+            ?? "\(desktop)\(o.layout.rawValue) · \(s.tiled(on: oid).count) tiled · \(s.windows.count) windows"
+        statusBar.set(status: status, active: reason == nil, paused: s.paused)
         settings.model.load(options: compositor.pending.options, paused: s.paused)
     }
 }
