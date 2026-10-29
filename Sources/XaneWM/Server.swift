@@ -691,6 +691,9 @@ final class Server: WorkerDelegate {
             scheduleCommit()
             return
         }
+        // Floating panels and overlays (layer above normal) are not part of the layout, even when
+        // AX calls them standard windows.
+        if windowServerSnapshot().raised.contains(s.id) { return }
         let c = classify(s, rules: compositor.pending.rules)
         guard c.management != .ignore,
               compositor.addWindow(s, classification: c, pointer: Displays.pointer()) else { return }
@@ -799,10 +802,13 @@ final class Server: WorkerDelegate {
 
     private func discovered(_ pid: pid_t, _ seen: Set<WindowID>) {
         let ws = windowServerSnapshot()
-        let gone = compositor.pending.windows.values.filter { $0.pid == pid && !seen.contains($0.id) && !ws.all.contains($0.id) }
+        let gone = compositor.pending.windows.values.filter {
+            $0.pid == pid && ((!seen.contains($0.id) && !ws.all.contains($0.id)) || ws.raised.contains($0.id))
+        }
         for w in gone {
-            // Neither AX nor the window server knows it any more: it closed without telling us.
-            Log.tiling.info("Window \(w.id, privacy: .public) went away unannounced")
+            // Neither AX nor the window server knows it any more (it closed without telling us), or
+            // it went above normal level.
+            Log.tiling.info("Window \(w.id, privacy: .public) went away or now floats above the rest")
             forgetBookkeeping(w.id)
             compositor.removeWindow(w.id)
             workers[pid]?.forgetWindow(w.id)

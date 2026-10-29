@@ -9,6 +9,8 @@ enum WindowServer {
     struct Snapshot {
         var onScreen = Set<WindowID>()
         var all = Set<WindowID>()
+        /// Windows above normal level: floating panels, overlays, windows kept on top.
+        var raised = Set<WindowID>()
     }
 
     static func snapshot() -> Snapshot {
@@ -16,8 +18,8 @@ enum WindowServer {
         guard let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] else { return s }
         for info in list {
-            guard let n = info[kCGWindowNumber as String] as? NSNumber,
-                  (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0 else { continue }
+            guard let n = info[kCGWindowNumber as String] as? NSNumber else { continue }
+            guard (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0 else { s.raised.insert(n.uint32Value); continue }
             s.all.insert(n.uint32Value)
             if (info[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue == true { s.onScreen.insert(n.uint32Value) }
         }
