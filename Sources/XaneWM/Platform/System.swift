@@ -25,10 +25,11 @@ enum WindowServer {
     }
 
     /// Topmost normal window under a point, or nil when something above normal level (a menu,
-    /// the Dock, a popover, Notification Center…) covers it.
+    /// a popover, a floating panel…) covers it.
     static func topWindow(at p: CGPoint, excluding pid: pid_t) -> WindowID? {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] else { return nil }
+        let displays = NSScreen.screens.map { Displays.flip($0.frame, Displays.primaryHeight) }
         for info in list {
             guard let bounds = info[kCGWindowBounds as String] as? NSDictionary,
                   let r = CGRect(dictionaryRepresentation: bounds as CFDictionary), r.contains(p) else { continue }
@@ -36,6 +37,9 @@ enum WindowServer {
             if owner == pid { continue }
             let alpha = (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1
             if alpha <= 0.01 { continue }
+            // The Dock, Stage Manager and the like keep a transparent window over the whole display:
+            // it covers everything without hiding anything.
+            if (info[kCGWindowLayer as String] as? NSNumber)?.intValue != 0, displays.contains(where: { r.contains($0) }) { continue }
             guard (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0 else { return nil }
             return (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value
         }
