@@ -311,8 +311,11 @@ final class Server: WorkerDelegate {
         case .number(let n):
             return n == shown ? (compositor.current.options.desktopBackAndForth ? previous : nil) : n
         case .back: return previous
-        case .left: return shown.map { $0 - 1 }
-        case .right: return shown.map { $0 + 1 }
+        // At either end there is nowhere to go, which is not an error.
+        case .left, .right:
+            guard let here = NativeSpaces.desktops(on: uuid), let cur = here.current else { return nil }
+            let n = t == .left ? cur - 1 : cur + 1
+            return here.range.contains(n) ? n : nil
         }
     }
 
@@ -333,23 +336,35 @@ final class Server: WorkerDelegate {
         carrying = true
         worker.grabPoint(id) { [weak self] p in
             guard let self else { return }
-            guard let p, self.compositor.current.windows[id]?.frame.contains(p) == true else {
+            // The press has to land on the window itself: a panel or another window on top would
+            // get it instead, and the switch would leave the window behind.
+            guard let p, self.compositor.current.windows[id]?.frame.contains(p) == true,
+                  WindowServer.topWindow(at: p, excluding: getpid()) == id else {
                 self.carrying = false
-                Log.input.error("Window \(id, privacy: .public) has no title bar to carry it by")
+                NSSound.beep()
+                Log.input.error("Can't carry window \(id, privacy: .public): its title bar is missing or covered")
                 return
             }
+            Log.input.info("Carrying window \(id, privacy: .public) to desktop \(n, privacy: .public), held at (\(Int(p.x), privacy: .public), \(Int(p.y), privacy: .public))")
             let back = Displays.pointer()
             func post(_ type: CGEventType, _ at: CGPoint) {
                 CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: at, mouseButton: .left)?.post(tap: .cghidEventTap)
             }
             post(.mouseMoved, p)
             post(.leftMouseDown, p)
-            post(.leftMouseDragged, CGPoint(x: p.x + 1, y: p.y))
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            // A few pixels of real drag: apps that drag their own title bar (Chromium, Electron) only
+            // start moving the window past a small threshold.
+            let held = CGPoint(x: p.x + 12, y: p.y)
+            for (i, dx) in [3.0, 6, 9, 12].enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.02 * Double(i + 1)) {
+                    post(.leftMouseDragged, CGPoint(x: p.x + dx, y: p.y))
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 for key in keys { SystemShortcuts.press(key) }
                 // Let go once the switch animation is over (longer when it crosses several desktops).
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + 0.3 * Double(keys.count - 1)) {
-                    post(.leftMouseUp, CGPoint(x: p.x + 1, y: p.y))
+                    post(.leftMouseUp, held)
                     _ = CGWarpMouseCursorPosition(back)
                     _ = CGAssociateMouseAndMouseCursorPosition(1)
                     self.carrying = false

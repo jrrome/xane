@@ -137,6 +137,8 @@ enum SystemShortcuts {
         if combo.modifiers.contains(.alt) { flags.insert(.maskAlternate) }
         if combo.modifiers.contains(.shift) { flags.insert(.maskShift) }
         if combo.modifiers.contains(.cmd) { flags.insert(.maskCommand) }
+        // Arrow keys carry fn and keypad flags, and system shortcuts on them only match with those.
+        if (0x7B...0x7E).contains(combo.keyCode) { flags.formUnion([.maskSecondaryFn, .maskNumericPad]) }
         for down in [true, false] {
             guard let e = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(combo.keyCode), keyDown: down) else { continue }
             e.flags = flags
@@ -162,6 +164,8 @@ final class MouseMonitor {
     var onUp: (() -> Void)?
     var onMove: (() -> Void)?
     private var buttonMonitors: [Any] = []
+    private var moveTap: CFMachPort?
+    private var moveSource: CFRunLoopSource?
     private var moveMonitor: Any?
 
     func start() {
@@ -175,12 +179,38 @@ final class MouseMonitor {
     }
 
     /// Mouse-move tracking only while focus-follows-mouse is on (it wakes the process a lot).
+    /// A listen-only event tap sees every move; a global NSEvent monitor misses the ones that go
+    /// to XaneWM itself (when it is the active app), so it is only the fallback.
     func trackMoves(_ on: Bool) {
-        if on, moveMonitor == nil {
-            moveMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved, handler: { [weak self] _ in self?.onMove?() })
-        } else if !on, let m = moveMonitor {
-            NSEvent.removeMonitor(m)
-            moveMonitor = nil
+        if on, moveTap == nil, moveMonitor == nil {
+            let me = Unmanaged.passUnretained(self).toOpaque()
+            let mask = CGEventMask(1 << CGEventType.mouseMoved.rawValue)
+            if let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .tailAppendEventTap, options: .listenOnly,
+                                           eventsOfInterest: mask, callback: { _, type, event, info in
+                guard let info else { return Unmanaged.passUnretained(event) }
+                let monitor = Unmanaged<MouseMonitor>.fromOpaque(info).takeUnretainedValue()
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    if let t = monitor.moveTap { CGEvent.tapEnable(tap: t, enable: true) }
+                } else {
+                    monitor.onMove?()
+                }
+                return Unmanaged.passUnretained(event)
+            }, userInfo: me) {
+                moveTap = tap
+                moveSource = CFMachPortCreateRunLoopSource(nil, tap, 0)
+                CFRunLoopAddSource(CFRunLoopGetMain(), moveSource, .commonModes)
+            } else {
+                moveMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved, handler: { [weak self] _ in self?.onMove?() })
+            }
+        } else if !on {
+            if let tap = moveTap {
+                CGEvent.tapEnable(tap: tap, enable: false)
+                if let src = moveSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes) }
+                CFMachPortInvalidate(tap)
+                moveTap = nil
+                moveSource = nil
+            }
+            if let m = moveMonitor { NSEvent.removeMonitor(m); moveMonitor = nil }
         }
     }
 
