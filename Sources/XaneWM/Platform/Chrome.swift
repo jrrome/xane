@@ -67,6 +67,8 @@ final class StatusBar: NSObject, NSMenuDelegate {
     /// What the menu shows checked, read each time it opens.
     struct State {
         var layout: LayoutKind?
+        /// The desktops of the focused display and the one it shows.
+        var desktops: ClosedRange<Int>?
         var desktop: Int?
         var focusFollowsMouse = false
         var border = false
@@ -108,12 +110,6 @@ final class StatusBar: NSObject, NSMenuDelegate {
         let layouts = NSMenuItem(title: "Layout", action: nil, keyEquivalent: "")
         layouts.submenu = layoutMenu
         menu.addItem(layouts)
-        for n in 1...9 {
-            let i = NSMenuItem(title: "Desktop \(n)", action: #selector(view(_:)), keyEquivalent: "")
-            i.target = self
-            i.tag = n
-            desktopMenu.addItem(i)
-        }
         let desktops = NSMenuItem(title: "Desktop", action: nil, keyEquivalent: "")
         desktops.submenu = desktopMenu
         menu.addItem(desktops)
@@ -159,7 +155,14 @@ final class StatusBar: NSObject, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard let s = state?() else { return }
         for i in layoutMenu.items { i.state = (i.representedObject as? String) == s.layout?.rawValue ? .on : .off }
-        for i in desktopMenu.items { i.state = i.tag == s.desktop ? .on : .off }
+        desktopMenu.removeAllItems()
+        for n in s.desktops ?? 1...1 {
+            let i = NSMenuItem(title: "Desktop \(n)", action: #selector(view(_:)), keyEquivalent: "")
+            i.target = self
+            i.tag = n
+            i.state = n == s.desktop ? .on : .off
+            desktopMenu.addItem(i)
+        }
         followItem.state = s.focusFollowsMouse ? .on : .off
         borderItem.state = s.border ? .on : .off
     }
@@ -176,7 +179,7 @@ final class StatusBar: NSObject, NSMenuDelegate {
     }
 
     @objc private func layout(_ sender: NSMenuItem) { onCommand?("layout \(sender.representedObject as? String ?? "next")") }
-    @objc private func view(_ sender: NSMenuItem) { onCommand?("view \(sender.tag)") }
+    @objc private func view(_ sender: NSMenuItem) { onCommand?("desktop \(sender.tag)") }
     @objc private func toggleFollow() { onSetOption?("focus-follows-mouse", [followItem.state == .on ? "off" : "on"]) }
     @objc private func toggleBorder() { onSetOption?("border", [borderItem.state == .on ? "off" : "on"]) }
     @objc private func settings() { onSettings?() }

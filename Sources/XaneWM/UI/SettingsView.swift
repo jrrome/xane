@@ -157,18 +157,8 @@ private struct GeneralPage: View {
                 Toggle("Tiling paused", isOn: Binding(get: { model.paused }, set: { _ in model.onCommand?("toggle-pause") }))
             }
             Section("Desktops") {
-                Picker("Desktops", selection: model.pick(\.desktops, "desktops")) {
-                    Text("XaneWM tags (instant)").tag(DesktopMode.tags)
-                    Text("macOS Spaces (animated)").tag(DesktopMode.spaces)
-                }
-                if model.options.desktops == .tags {
-                    Note("⌃1…9 switch instantly. Turn off “Switch to Desktop N” in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, or macOS keeps ⌃1…9.")
-                } else {
-                    Note("Each Space tiles its own windows. Turn on “Switch to Desktop N” in System Settings → Keyboard → Keyboard Shortcuts → Mission Control: XaneWM uses those shortcuts.")
-                }
-                Toggle("Pressing the current desktop goes back", isOn: model.flag(\.viewBackAndForth, "view-back-and-forth"))
-                Toggle("Show the desktop of a window activated elsewhere (⌘-Tab, Dock)", isOn: model.flag(\.followActivation, "follow-activation"))
-                    .disabled(model.options.desktops == .spaces)
+                Toggle("Pressing the current desktop goes back", isOn: model.flag(\.desktopBackAndForth, "desktop-back-and-forth"))
+                Note("Desktops are the macOS ones (Mission Control) and each tiles its own windows. ⌃1…9 jumps straight to a desktop once “Switch to Desktop N” is on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control; until then XaneWM gets there with “Move left/right a space”.")
             }
             Section("New windows") {
                 Picker("Open on", selection: model.pick(\.newWindowOutput, "new-window-output")) {
@@ -385,14 +375,13 @@ private struct RuleRowView: View {
                 Text("Float").tag(SettingsModel.RuleRow.Action.float)
                 Text("Tile").tag(SettingsModel.RuleRow.Action.tile)
                 Text("Ignore").tag(SettingsModel.RuleRow.Action.ignore)
-                Text("Desktop").tag(SettingsModel.RuleRow.Action.tags)
                 Text("Display").tag(SettingsModel.RuleRow.Action.output)
             }
             .labelsHidden()
             .frame(width: 96)
             .onChange(of: row.action) { _ in model.commitRules() }
-            if row.action == .tags || row.action == .output {
-                Stepper(value: $row.number, in: 1...(row.action == .tags ? 32 : 9)) { Text("\(row.number)").monospacedDigit() }
+            if row.action == .output {
+                Stepper(value: $row.number, in: 1...9) { Text("\(row.number)").monospacedDigit() }
                     .onChange(of: row.number) { _ in model.commitRules() }
                     .fixedSize()
             }

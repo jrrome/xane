@@ -1,7 +1,7 @@
 // xanectl — talks to the running compositor over its Unix socket (like swaymsg / riverctl).
 //
 //   xanectl focus left
-//   xanectl "view 2; focus main"
+//   xanectl "desktop 2; focus main"
 //   xanectl query windows | jq
 //   xanectl subscribe
 #if canImport(Darwin)
@@ -39,7 +39,7 @@ while let a = args.first, a.hasPrefix("-"), a.count > 1, Double(a) == nil {
 guard !args.isEmpty else { usage() }
 
 // Re-quote arguments so the server tokenizes exactly what the shell gave us. A single argument
-// is passed through untouched so "view 2; focus main" works as one line.
+// is passed through untouched so "desktop 2; focus main" works as one line.
 func quote(_ s: String) -> String {
     if !s.isEmpty && !s.contains(where: { $0.isWhitespace || "\"'\\".contains($0) }) { return s }
     return "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""

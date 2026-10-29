@@ -63,7 +63,6 @@ public struct Window: Equatable, Sendable {
     public var minimumSizeKey: String
 
     public var output: OutputID
-    public var tags: UInt32
     public var floating: Bool
     /// Compositor-level fullscreen: fills the output's usable area, above the layout. (Native
     /// macOS fullscreen moves the window to its own Space and is tracked by `nativeFullscreen`.)
@@ -84,10 +83,9 @@ public struct Window: Equatable, Sendable {
     public var sessionMinimum: CGSize = .zero
 
     public init(id: WindowID, pid: Int32, bundleID: String, appName: String, title: String,
-                subrole: String, minimumSizeKey: String, output: OutputID, tags: UInt32,
-                floating: Bool, frame: CGRect) {
+                subrole: String, minimumSizeKey: String, output: OutputID, floating: Bool, frame: CGRect) {
         self.id = id; self.pid = pid; self.bundleID = bundleID; self.appName = appName; self.title = title
-        self.subrole = subrole; self.minimumSizeKey = minimumSizeKey; self.output = output; self.tags = tags
+        self.subrole = subrole; self.minimumSizeKey = minimumSizeKey; self.output = output
         self.floating = floating; self.frame = frame
     }
 
@@ -103,8 +101,6 @@ public struct Output: Equatable, Sendable {
     public var frame: CGRect
     /// Frame minus menu bar and Dock (NSScreen.visibleFrame), in window-server coordinates.
     public var visibleFrame: CGRect
-    public var tags: UInt32 = 1
-    public var previousTags: UInt32 = 1
     public var layout: LayoutKind
     public var params: LayoutParams
 
@@ -119,17 +115,4 @@ public struct Output: Equatable, Sendable {
 public struct OutputSettings: Codable, Equatable, Sendable {
     public var layout: LayoutKind
     public var params: LayoutParams
-    public var tags: UInt32
-}
-
-public enum Tags {
-    public static let all: UInt32 = .max
-    /// 1-based tag number → mask.
-    public static func mask(_ n: Int) -> UInt32? { (1...32).contains(n) ? UInt32(1) << UInt32(n - 1) : nil }
-    /// Lowest tag number in the mask (1-based), or nil if empty.
-    public static func first(_ mask: UInt32) -> Int? { mask == 0 ? nil : mask.trailingZeroBitCount + 1 }
-    public static func numbers(_ mask: UInt32) -> [Int] { (1...32).filter { mask & (UInt32(1) << UInt32($0 - 1)) != 0 } }
-    public static func describe(_ mask: UInt32) -> String {
-        mask == all ? "all" : numbers(mask).map(String.init).joined(separator: ",")
-    }
 }

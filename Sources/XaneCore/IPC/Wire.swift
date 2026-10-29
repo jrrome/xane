@@ -43,7 +43,6 @@ struct WindowView: Encodable {
     var bundle_id: String
     var title: String
     var output: UInt32
-    var tags: [Int]
     var floating: Bool
     var fullscreen: Bool
     var visible: Bool
@@ -61,7 +60,6 @@ struct OutputView: Encodable {
     var index: Int
     var frame: Rect
     var usable: Rect
-    var tags: [Int]
     var layout: String
     var main_ratio: Double
     var main_count: Int
@@ -82,7 +80,7 @@ struct StateView: Encodable {
 struct BindingView: Encodable { var keys: String; var command: String }
 
 struct TreeView: Encodable {
-    struct Out: Encodable { var output: UInt32; var layout: String; var tags: [Int]; var tiled: [UInt32]; var floating: [UInt32]; var hidden: [UInt32] }
+    struct Out: Encodable { var output: UInt32; var layout: String; var tiled: [UInt32]; var floating: [UInt32]; var hidden: [UInt32] }
     var outputs: [Out]
 }
 
@@ -95,7 +93,7 @@ extension Compositor {
                 guard let w = s.windows[id] else { return nil }
                 let m = minimum(for: w)
                 return WindowView(id: id, pid: w.pid, app: w.appName, bundle_id: w.bundleID, title: w.title,
-                                  output: w.output, tags: Tags.numbers(w.tags), floating: w.floating,
+                                  output: w.output, floating: w.floating,
                                   fullscreen: w.fullscreen, visible: s.isVisible(w), present: w.isPresent,
                                   minimized: w.minimized, focused: s.focused == id, frame: Rect(w.frame),
                                   minimum: [Double(m.width), Double(m.height)])
@@ -105,7 +103,7 @@ extension Compositor {
             let v = s.outputOrder.enumerated().compactMap { i, oid -> OutputView? in
                 guard let o = s.outputs[oid] else { return nil }
                 return OutputView(id: oid, uuid: o.uuid, name: o.name, index: i + 1, frame: Rect(o.frame),
-                                  usable: Rect(s.usableArea(of: o)), tags: Tags.numbers(o.tags),
+                                  usable: Rect(s.usableArea(of: o)),
                                   layout: o.layout.rawValue, main_ratio: o.params.mainRatio,
                                   main_count: o.params.mainCount, orientation: o.params.orientation.rawValue,
                                   focused: s.focusedOutput == oid, windows: s.visible(on: oid))
@@ -123,7 +121,7 @@ extension Compositor {
             let outs = s.outputOrder.compactMap { oid -> TreeView.Out? in
                 guard let o = s.outputs[oid] else { return nil }
                 let mine = s.order.filter { s.windows[$0]?.output == oid }
-                return TreeView.Out(output: oid, layout: o.layout.rawValue, tags: Tags.numbers(o.tags),
+                return TreeView.Out(output: oid, layout: o.layout.rawValue,
                                     tiled: s.tiled(on: oid),
                                     floating: mine.filter { s.windows[$0]!.floating && s.isVisible($0) },
                                     hidden: mine.filter { !s.isVisible($0) })
@@ -147,9 +145,6 @@ extension Compositor {
         }
         for (oid, o) in b.outputs {
             let old = a.outputs[oid]
-            if old?.tags != o.tags {
-                out.append("{\"event\":\"tags\",\"output\":\(oid),\"tags\":\(Wire.encode(Tags.numbers(o.tags)))}")
-            }
             if old?.layout != o.layout {
                 out.append("{\"event\":\"layout\",\"layout\":\"\(o.layout.rawValue)\",\"output\":\(oid)}")
             }

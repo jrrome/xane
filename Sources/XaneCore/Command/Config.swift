@@ -47,7 +47,7 @@ public enum Config {
 #
 # Every line is a command: the same language used by key bindings and by `xanectl`.
 # Changes apply with `xanectl reload` (or ctrl+alt+shift+r).
-# Tags work like river/dwm workspaces: each display shows a set of tags, each window has tags.
+# Desktops are the macOS ones (Mission Control): each one tiles its own windows.
 
 # ── Appearance ────────────────────────────────────────────────────────────────
 set gap-inner 8
@@ -66,10 +66,8 @@ set new-window-output pointer     # pointer | focused | app
 set focus-follows-mouse on        # the window under the pointer gets focus
 set focus-follows-mouse-delay 0   # 0 = instant; >0 = only once the pointer rests that long (s)
 set mouse-follows-focus off
-set view-back-and-forth on
-set follow-activation on          # ⌘-Tab to a window on a hidden tag shows that tag
+set desktop-back-and-forth on     # ctrl+N on the desktop shown goes back to the one before
 set enforce-layout on             # put tiled windows back if an app moves them by itself
-set desktops tags                 # tags: XaneWM's own, instant | spaces: macOS desktops (animated)
 # set edges 0 0 0 0               # reserve space for other bars: top right bottom left
 
 # ── Rules (later rules win) ───────────────────────────────────────────────────
@@ -90,7 +88,6 @@ rule float app-id com.apple.CaptiveNetworkAssistant
 rule float app-id com.apple.ProblemReporter
 rule float app-id com.apple.Magnifier
 rule float title "^Picture[ -]in[ -]Picture$"
-# rule tags 9 app-id com.spotify.client
 # rule output 2 app-id com.apple.mail
 
 # ── Key bindings (ctrl+alt is the prefix; hyper = ctrl+alt+shift+cmd) ──────────
@@ -122,29 +119,28 @@ bind ctrl+alt+minus main-count -1
 bind ctrl+alt+o orientation next
 bind ctrl+alt+0 reset-layout
 
-# Desktops: ctrl+N shows desktop N, ctrl+shift+N moves the focused window there.
-# With `desktops tags`, turn off "Switch to Desktop N" in System Settings → Keyboard →
-# Keyboard Shortcuts → Mission Control, or macOS keeps ctrl+N for itself.
-# With `desktops spaces`, turn those shortcuts on instead: XaneWM uses them.
-bind ctrl+1 view 1
-bind ctrl+2 view 2
-bind ctrl+3 view 3
-bind ctrl+4 view 4
-bind ctrl+5 view 5
-bind ctrl+6 view 6
-bind ctrl+7 view 7
-bind ctrl+8 view 8
-bind ctrl+9 view 9
-bind ctrl+shift+1 tag 1
-bind ctrl+shift+2 tag 2
-bind ctrl+shift+3 tag 3
-bind ctrl+shift+4 tag 4
-bind ctrl+shift+5 tag 5
-bind ctrl+shift+6 tag 6
-bind ctrl+shift+7 tag 7
-bind ctrl+shift+8 tag 8
-bind ctrl+shift+9 tag 9
-bind ctrl+alt+tab view prev
+# Desktops (macOS Spaces): ctrl+N shows desktop N, ctrl+shift+N carries the focused window there.
+# With "Switch to Desktop N" on (System Settings → Keyboard → Keyboard Shortcuts → Mission
+# Control) macOS jumps straight there; otherwise XaneWM steps with "Move left/right a space".
+bind ctrl+1 desktop 1
+bind ctrl+2 desktop 2
+bind ctrl+3 desktop 3
+bind ctrl+4 desktop 4
+bind ctrl+5 desktop 5
+bind ctrl+6 desktop 6
+bind ctrl+7 desktop 7
+bind ctrl+8 desktop 8
+bind ctrl+9 desktop 9
+bind ctrl+shift+1 move-to-desktop 1
+bind ctrl+shift+2 move-to-desktop 2
+bind ctrl+shift+3 move-to-desktop 3
+bind ctrl+shift+4 move-to-desktop 4
+bind ctrl+shift+5 move-to-desktop 5
+bind ctrl+shift+6 move-to-desktop 6
+bind ctrl+shift+7 move-to-desktop 7
+bind ctrl+shift+8 move-to-desktop 8
+bind ctrl+shift+9 move-to-desktop 9
+bind ctrl+alt+tab desktop back
 
 bind ctrl+alt+leftbracket focus-output prev
 bind ctrl+alt+rightbracket focus-output next

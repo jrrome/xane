@@ -44,7 +44,6 @@ final class Server: WorkerDelegate {
 
     // Robustness bookkeeping.
     private var recheck: [WindowID: CGRect] = [:]
-    private var parkRetries: [WindowID: Int] = [:]
     private var fights: [WindowID: (count: Int, since: TimeInterval)] = [:]
     private var resnapshotAt: [WindowID: TimeInterval] = [:]
     private var busyRetry = Set<pid_t>()
@@ -119,13 +118,10 @@ final class Server: WorkerDelegate {
         scheduleCommit()
     }
 
-    /// Puts every hidden window back in view and saves state. Safe to call more than once.
+    /// Saves state and lets go of everything. Safe to call more than once.
     func shutdown() {
         guard !shuttingDown else { return }
-        if started {
-            revealEverything(wait: true)
-            store.save(compositor.persisted())
-        }
+        if started { store.save(compositor.persisted()) }
         shuttingDown = true
         ipc?.stop()
         border.hide()
@@ -191,16 +187,12 @@ final class Server: WorkerDelegate {
             }
             do { _ = try compositor.execute(cmd) } catch { errors.append("\(error)") }
         }
-        let spaces = compositor.pending.options.desktops == .spaces
         for (combo, id) in SystemShortcuts.conflicts(with: Set(compositor.pending.bindings.keys)) {
-            // With Spaces, "Switch to Desktop N" on the same keys as `view N` is the same thing.
-            if spaces, compositor.pending.bindings[combo] == "view \(id - 117)", SystemShortcuts.desktopIDs.contains(id) { continue }
+            // macOS doing the same thing on the same keys is no clash.
+            if isSameAsSystem(compositor.pending.bindings[combo] ?? "", id) { continue }
             errors.append("\(combo) is taken by a macOS shortcut (System Settings → Keyboard → Keyboard Shortcuts)")
         }
-        if spaces {
-            if !NativeSpaces.isAvailable { errors.append("desktops spaces: \(NativeSpaces.Failure.unavailable)") }
-            else if SystemShortcuts.desktop(1) == nil { errors.append("desktops spaces: \(NativeSpaces.Failure.shortcutOff(1))") }
-        }
+        if !NativeSpaces.isAvailable { errors.append("desktops: \(NativeSpaces.Failure.unavailable)") }
         statusBar.set(problems: errors)
         for e in errors { Log.main.error("Config: \(e, privacy: .public)") }
         let bound = Set(compositor.pending.bindings.keys)
@@ -259,10 +251,6 @@ final class Server: WorkerDelegate {
         switch e {
         case .focus(let id):
             focus(id)
-        case .focusDesktop:
-            // Nothing visible: make ourselves active (we have no windows) so keystrokes don't land
-            // in a window that is parked out of view.
-            if #available(macOS 14.0, *) { NSApp.activate() } else { NSApp.activate(ignoringOtherApps: true) }
         case .close(let id):
             worker(of: id)?.close(id)
         case .warp(let p):
@@ -283,19 +271,26 @@ final class Server: WorkerDelegate {
             if let client { client.subscribe(greeting: Wire.ok()); return true }
         case .openSettings:
             settings.show()
-        case .viewSpace(let n):
-            try viewDesktop(n)
-        case .moveToSpace(let id, let n):
-            try carry(id, toDesktop: n)
+        case .showDesktop(let t):
+            try showDesktop(t)
+        case .moveToDesktop(let id, let t):
+            try carry(id, to: t)
         }
         return false
     }
 
-    // MARK: - macOS Spaces (`desktops spaces`)
+    // MARK: - Desktops (macOS Spaces)
 
     private var focusedDisplay: String? {
         let s = compositor.current
         return (s.focusedOutput ?? s.outputOrder.first).flatMap { s.outputs[$0]?.uuid }
+    }
+
+    private func isSameAsSystem(_ command: String, _ id: Int) -> Bool {
+        if SystemShortcuts.desktopIDs.contains(id) { return command == "desktop \(id - 117)" }
+        if id == SystemShortcuts.moveLeft { return command == "desktop left" }
+        if id == SystemShortcuts.moveRight { return command == "desktop right" }
+        return false
     }
 
     private func trackDesktops() {
@@ -304,28 +299,36 @@ final class Server: WorkerDelegate {
             let old = desktops[o.uuid]
             guard old?.current != now else { continue }
             desktops[o.uuid] = (now, old?.current ?? old?.previous)
+            if let n = now { ipc?.broadcast("{\"desktop\":\(n),\"event\":\"desktop\",\"output\":\(o.id)}") }
         }
     }
 
-    private func viewDesktop(_ n: Int?) throws {
-        guard let uuid = focusedDisplay else { return }
+    /// The desktop a target means on a display, or nil when there is nothing to do.
+    private func resolve(_ t: DesktopTarget, on uuid: String) -> Int? {
         let shown = NativeSpaces.current(on: uuid)
         let previous = desktops[uuid]?.previous
-        var target = n ?? previous
-        if let t = target, t == shown {
-            target = n != nil && compositor.current.options.viewBackAndForth ? previous : nil
+        switch t {
+        case .number(let n):
+            return n == shown ? (compositor.current.options.desktopBackAndForth ? previous : nil) : n
+        case .back: return previous
+        case .left: return shown.map { $0 - 1 }
+        case .right: return shown.map { $0 + 1 }
         }
-        guard let target, target != shown else { return }
-        SystemShortcuts.press(try NativeSpaces.shortcut(for: target))
+    }
+
+    private func showDesktop(_ t: DesktopTarget) throws {
+        guard let uuid = focusedDisplay, let n = resolve(t, on: uuid), n != NativeSpaces.current(on: uuid) else { return }
+        for key in try NativeSpaces.keys(toShow: n, on: uuid) { SystemShortcuts.press(key) }
     }
 
     /// There is no public way to move another app's window to a Space (and the private one needs
-    /// SIP off since macOS 14.5). So, like Amethyst: hold the window by its title bar, press
-    /// "Switch to Desktop N" and let go once the Dock has carried it over.
-    private func carry(_ id: WindowID, toDesktop n: Int) throws {
+    /// SIP off since macOS 14.5). So, like Amethyst: hold the window by its title bar, press the
+    /// desktop shortcut and let go once the Dock has carried it over.
+    private func carry(_ id: WindowID, to t: DesktopTarget) throws {
         guard !carrying, let w = compositor.current.windows[id], w.isPresent, !w.nativeFullscreen,
-              let uuid = compositor.current.outputs[w.output]?.uuid, NativeSpaces.current(on: uuid) != n else { return }
-        let combo = try NativeSpaces.shortcut(for: n)
+              let uuid = compositor.current.outputs[w.output]?.uuid,
+              let n = resolve(t, on: uuid), n != NativeSpaces.current(on: uuid) else { return }
+        let keys = try NativeSpaces.keys(toShow: n, on: uuid)
         guard let worker = worker(of: id) else { return }
         carrying = true
         worker.grabPoint(id) { [weak self] p in
@@ -343,9 +346,9 @@ final class Server: WorkerDelegate {
             post(.leftMouseDown, p)
             post(.leftMouseDragged, CGPoint(x: p.x + 1, y: p.y))
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                SystemShortcuts.press(combo)
-                // Let go once the switch animation is over.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                for key in keys { SystemShortcuts.press(key) }
+                // Let go once the switch animation is over (longer when it crosses several desktops).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + 0.3 * Double(keys.count - 1)) {
                     post(.leftMouseUp, CGPoint(x: p.x + 1, y: p.y))
                     _ = CGWarpMouseCursorPosition(back)
                     _ = CGAssociateMouseAndMouseCursorPosition(1)
@@ -454,10 +457,9 @@ final class Server: WorkerDelegate {
         let s = compositor.current
         let oid = s.focusedOutput ?? s.outputOrder.first
         let o = oid.flatMap { s.outputs[$0] }
-        let desktop = s.options.desktops == .spaces
-            ? o.flatMap { desktops[$0.uuid]?.current }
-            : o.flatMap { $0.tags.nonzeroBitCount == 1 ? Tags.first($0.tags) : nil }
-        return .init(layout: o?.layout, desktop: desktop, focusFollowsMouse: s.options.focusFollowsMouse, border: s.options.border)
+        let here = o.flatMap { NativeSpaces.desktops(on: $0.uuid) }
+        return .init(layout: o?.layout, desktops: here?.range, desktop: here?.current,
+                     focusFollowsMouse: s.options.focusFollowsMouse, border: s.options.border)
     }
 
     private func openConfig() {
@@ -500,7 +502,7 @@ final class Server: WorkerDelegate {
         dispatch(tx)
         if !tx.configures.isEmpty {
             let ms = (now - t0) * 1000
-            Log.tiling.debug("Commit: \(tx.configures.count, privacy: .public) configures · \(tx.tiled, privacy: .public) tiled · \(tx.floating, privacy: .public) floating · \(tx.hidden, privacy: .public) hidden · \(ms, format: .fixed(precision: 2), privacy: .public) ms")
+            Log.tiling.debug("Commit: \(tx.configures.count, privacy: .public) configures · \(tx.tiled, privacy: .public) tiled · \(tx.floating, privacy: .public) floating · \(ms, format: .fixed(precision: 2), privacy: .public) ms")
         }
         if let ipc {
             for e in Compositor.events(from: before, to: compositor.current) { ipc.broadcast(e) }
@@ -517,26 +519,6 @@ final class Server: WorkerDelegate {
             workers[pid]?.apply(list, toggleEnhancedUI: toggle)
         }
         for id in tx.raise { worker(of: id)?.raise(id) }
-    }
-
-    private func revealEverything(wait: Bool) {
-        let cfgs = compositor.revealAll(now: now)
-        guard !cfgs.isEmpty else { return }
-        let toggle = !NSWorkspace.shared.isVoiceOverEnabled
-        let group = DispatchGroup()
-        for (pid, list) in Dictionary(grouping: cfgs, by: { $0.pid }) {
-            guard let w = workers[pid] else { continue }
-            if wait {
-                group.enter()
-                DispatchQueue.global(qos: .userInitiated).async {
-                    w.applyAndWait(list, timeout: 1.0)
-                    group.leave()
-                }
-            } else {
-                w.apply(list, toggleEnhancedUI: toggle)
-            }
-        }
-        if wait { _ = group.wait(timeout: .now() + 1.5) }
     }
 
     // MARK: - Pointer
@@ -741,7 +723,7 @@ final class Server: WorkerDelegate {
         // The app moved a window the compositor placed: the compositor has the last word…
         guard compositor.pending.options.enforceLayout, !compositor.pending.paused else { return }
         switch compositor.placement(of: id) {
-        case .frame?, .park?:
+        case .frame?:
             // …unless it keeps fighting back (some apps animate or snap): then let it be for a while.
             if isFighting(id) {
                 if fights[id]?.count == 5 {
@@ -769,7 +751,6 @@ final class Server: WorkerDelegate {
         switch compositor.ack(id, serial: serial, frame: frame) {
         case .settled:
             recheck[id] = nil
-            parkRetries[id] = nil
         case .stale:
             break
         case .tooBig(let asked):
@@ -786,15 +767,6 @@ final class Server: WorkerDelegate {
                     self.force.insert(id)
                     self.scheduleCommit()
                 }
-            }
-        case .misplaced:
-            let n = (parkRetries[id] ?? 0) + 1
-            parkRetries[id] = n
-            if n <= 2 {
-                force.insert(id)
-                scheduleCommit()
-            } else if n == 3 {
-                Log.tiling.info("Window \(id, privacy: .public) won't stay in its hiding place")
             }
         }
         if id == compositor.current.focused { scheduleBorderUpdate() }
@@ -820,7 +792,6 @@ final class Server: WorkerDelegate {
 
     private func forgetBookkeeping(_ id: WindowID) {
         recheck[id] = nil
-        parkRetries[id] = nil
         fights[id] = nil
         resnapshotAt[id] = nil
         grabbed.remove(id)
@@ -895,7 +866,7 @@ final class Server: WorkerDelegate {
 
     private func spaceChanged() {
         border.hide()
-        if compositor.current.options.desktops == .spaces { trackDesktops() }
+        trackDesktops()
         presenceDirty = true
         updateStageManager()
         // AX only lists the windows of the current Space: look again (first visit = new windows).
@@ -926,7 +897,6 @@ final class Server: WorkerDelegate {
         CFPreferencesAppSynchronize(domain)
         let on = (CFPreferencesCopyAppValue("GloballyEnabled" as CFString, domain) as? Bool) ?? false
         if on, !blockers.contains("Stage Manager") {
-            revealEverything(wait: false)
             block("Stage Manager")
         } else if !on {
             unblock("Stage Manager")
@@ -968,7 +938,7 @@ final class Server: WorkerDelegate {
         borderScheduled = false
         let s = compositor.current
         guard started, s.options.border, blockers.isEmpty, !s.paused, let id = s.focused, let w = s.windows[id],
-              s.isVisible(w), !w.fullscreen, !compositor.parked.contains(id) else {
+              s.isVisible(w), !w.fullscreen else {
             border.hide()
             return
         }
@@ -979,13 +949,8 @@ final class Server: WorkerDelegate {
     private func updateStatus() {
         let s = compositor.current
         guard let oid = s.focusedOutput ?? s.outputOrder.first, let o = s.outputs[oid] else { return }
-        let tags: String
-        if s.options.desktops == .spaces {
-            trackDesktops()
-            tags = desktops[o.uuid]?.current.map(String.init) ?? "∗"
-        } else {
-            tags = o.tags == Tags.all ? "∗" : Tags.numbers(o.tags).map(String.init).joined(separator: "·")
-        }
+        trackDesktops()
+        let tags = desktops[o.uuid]?.current.map(String.init) ?? "∗"
         let reason = blockers.sorted().first ?? (s.paused ? "paused" : nil)
         let title = (reason != nil ? "⏸ " : StatusBar.glyph(o.layout) + " ") + tags
         let status = reason.map { "Not tiling: \($0)" }

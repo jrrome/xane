@@ -2,9 +2,9 @@
 import AppKit
 import XaneCore
 
-/// macOS Spaces, for `set desktops spaces`. Reading them needs SkyLight (private, read-only, the
-/// same calls yabai and Hammerspoon use); switching goes through the user's own "Switch to
-/// Desktop N" shortcuts, so the Dock stays in charge of Spaces (and of their animation).
+/// macOS Spaces are XaneWM's desktops. Reading them needs SkyLight (private, read-only, the same
+/// calls yabai and Hammerspoon use); switching goes through the user's own Mission Control
+/// shortcuts, so the Dock stays in charge of Spaces (and of their animation).
 enum NativeSpaces {
     struct Display {
         var uuid: String
@@ -20,7 +20,7 @@ enum NativeSpaces {
             case .unavailable: return "this macOS does not expose its Spaces"
             case .noDesktop(let n): return "there is no desktop \(n) (add it in Mission Control)"
             case .shortcutOff(let n):
-                return "turn on “Switch to Desktop \(n)” in System Settings → Keyboard → Keyboard Shortcuts → Mission Control"
+                return "turn on “Switch to Desktop \(n)” (or “Move left/right a space”) in System Settings → Keyboard → Keyboard Shortcuts → Mission Control"
             }
         }
     }
@@ -49,27 +49,36 @@ enum NativeSpaces {
 
     static var desktopCount: Int { displays().reduce(0) { $0 + $1.desktops.count } }
 
-    /// Desktop number shown on a display. Numbers run on across displays, like Mission Control's
-    /// shortcuts. Nil on a fullscreen app's Space.
-    static func current(on uuid: String) -> Int? {
+    /// The desktops of a display as Mission Control numbers them (numbers run on across displays)
+    /// and the one it shows (nil on a fullscreen app's Space). A single entry ("Main") when displays
+    /// share their Spaces.
+    static func desktops(on uuid: String) -> (range: ClosedRange<Int>, current: Int?)? {
         let all = displays()
         var base = 0
         for d in all {
-            // A single entry ("Main") when displays share their Spaces.
             if d.uuid == uuid || all.count == 1 {
-                return d.desktops.firstIndex(of: d.current).map { base + $0 + 1 }
+                guard !d.desktops.isEmpty else { return nil }
+                return (base + 1...base + d.desktops.count, d.desktops.firstIndex(of: d.current).map { base + $0 + 1 })
             }
             base += d.desktops.count
         }
         return nil
     }
 
-    /// The shortcut that shows desktop `n`, or why it can't be shown.
-    static func shortcut(for n: Int) throws -> KeyCombo {
+    static func current(on uuid: String) -> Int? { desktops(on: uuid)?.current }
+
+    /// Keys that take a display to desktop `n`: its "Switch to Desktop N" shortcut when that is on,
+    /// else "Move left/right a space" as many times as it takes.
+    static func keys(toShow n: Int, on uuid: String) throws -> [KeyCombo] {
         guard isAvailable else { throw Failure.unavailable }
         guard n >= 1, n <= desktopCount else { throw Failure.noDesktop(n) }
-        guard let combo = SystemShortcuts.desktop(n) else { throw Failure.shortcutOff(n) }
-        return combo
+        let shortcuts = SystemShortcuts.enabled()
+        if let direct = shortcuts[SystemShortcuts.desktopIDs.lowerBound + n - 1], n <= 9 { return [direct] }
+        guard let here = desktops(on: uuid), let cur = here.current, here.range.contains(n),
+              let step = shortcuts[n > cur ? SystemShortcuts.moveRight : SystemShortcuts.moveLeft] else {
+            throw Failure.shortcutOff(n)
+        }
+        return Array(repeating: step, count: abs(n - cur))
     }
 }
 #endif

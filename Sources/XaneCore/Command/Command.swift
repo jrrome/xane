@@ -37,7 +37,9 @@ public enum Adjust: Equatable, Sendable {
 
 public enum LayoutChoice: Equatable, Sendable { case kind(LayoutKind), next, previous }
 
-public enum TagArg: Equatable, Sendable { case mask(UInt32), previous }
+/// A macOS desktop (Space): by number as Mission Control counts them, the neighbour on either
+/// side, or the one shown before.
+public enum DesktopTarget: Equatable, Sendable { case number(Int), left, right, back }
 
 /// Everything the compositor can be asked to do. Key bindings, the config file and `xanectl`
 /// all speak this same language (one parser, one executor).
@@ -46,7 +48,7 @@ public enum Command: Equatable, Sendable {
     case float(Toggle), fullscreen(Toggle), close
     case layout(LayoutChoice), mainRatio(Adjust), mainCount(Adjust), orientation(Orientation?)
     case resize(delta: Double, axis: Axis?), resetLayout
-    case view(TagArg), viewToggle(UInt32), tag(UInt32), tagToggle(UInt32)
+    case desktop(DesktopTarget), moveToDesktop(DesktopTarget)
     case focusOutput(OutputTarget), sendToOutput(OutputTarget)
     case retile, reload, pause, resume, togglePause, quit, settings
     case set(String, [String])
@@ -62,10 +64,10 @@ public enum Command: Equatable, Sendable {
 
     public static let names = [
         "focus", "swap", "zoom", "float", "toggle-float", "fullscreen", "toggle-fullscreen", "close",
-        "layout", "main-ratio", "main-count", "orientation", "resize", "reset-layout", "view", "view-toggle",
-        "tag", "tag-toggle", "set-focused-tags", "set-view-tags", "focus-output", "send-to-output", "retile",
-        "reload", "pause", "resume", "toggle-pause", "quit", "set", "rule", "rule-clear", "bind", "unbind",
-        "query", "subscribe", "exec",
+        "layout", "main-ratio", "main-count", "orientation", "resize", "reset-layout", "desktop",
+        "move-to-desktop", "focus-output", "send-to-output", "retile", "reload", "pause", "resume",
+        "toggle-pause", "settings", "quit", "set", "rule", "rule-clear", "bind", "unbind", "query", "subscribe",
+        "exec",
     ]
 }
 
@@ -225,15 +227,8 @@ public enum CommandParser {
             }
             return .resize(delta: dir == "grow" ? amount : -amount, axis: axis)
         case "reset-layout": return .resetLayout
-        case "view":
-            let a = try arg(0, "tag")
-            if a == "prev" || a == "previous" || a == "back" { return .view(.previous) }
-            return .view(.mask(try tagMask(a)))
-        case "view-toggle": return .viewToggle(try tagMask(arg(0, "tag")))
-        case "tag": return .tag(try tagMask(arg(0, "tag")))
-        case "tag-toggle": return .tagToggle(try tagMask(arg(0, "tag")))
-        case "set-focused-tags": return .view(.mask(try rawMask(arg(0, "mask"))))
-        case "set-view-tags": return .tag(try rawMask(arg(0, "mask")))
+        case "desktop", "workspace": return .desktop(try desktopTarget(arg(0, "desktop")))
+        case "move-to-desktop", "move-to-workspace": return .moveToDesktop(try desktopTarget(arg(0, "desktop")))
         case "focus-output": return .focusOutput(try outputTarget(arg(0, "output")))
         case "send-to-output": return .sendToOutput(try outputTarget(arg(0, "output")))
         case "retile": return .retile
@@ -310,22 +305,15 @@ public enum CommandParser {
         return .set(v)
     }
 
-    static func tagMask(_ s: String) throws -> UInt32 {
-        if s.lowercased() == "all" { return Tags.all }
-        // "1", or "1,3" to address several tags at once.
-        var mask: UInt32 = 0
-        for part in s.split(separator: ",") {
-            guard let n = Int(part), let m = Tags.mask(n) else { throw CommandError.invalidArgument("tag '\(s)'") }
-            mask |= m
+    static func desktopTarget(_ s: String) throws -> DesktopTarget {
+        switch s.lowercased() {
+        case "left", "prev", "previous": return .left
+        case "right", "next": return .right
+        case "back", "back-and-forth", "last": return .back
+        default:
+            guard let n = Int(s), (1...16).contains(n) else { throw CommandError.invalidArgument("desktop '\(s)'") }
+            return .number(n)
         }
-        guard mask != 0 else { throw CommandError.invalidArgument("tag '\(s)'") }
-        return mask
-    }
-
-    static func rawMask(_ s: String) throws -> UInt32 {
-        let v: UInt32? = s.lowercased().hasPrefix("0x") ? UInt32(s.dropFirst(2), radix: 16) : UInt32(s)
-        guard let m = v, m != 0 else { throw CommandError.invalidArgument("mask '\(s)'") }
-        return m
     }
 
     static func rule(_ a: [String]) throws -> Rule {
@@ -336,9 +324,6 @@ public enum CommandParser {
         case "float": action = .float
         case "tile": action = .tile
         case "ignore": action = .ignore
-        case "tags", "tag":
-            guard i < a.count else { throw CommandError.missingArgument("tags") }
-            action = .tags(try tagMask(a[i])); i += 1
         case "output":
             guard i < a.count, let n = Int(a[i]), n >= 1 else { throw CommandError.missingArgument("output index") }
             action = .output(n); i += 1

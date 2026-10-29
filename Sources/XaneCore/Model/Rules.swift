@@ -3,13 +3,11 @@ import Foundation
 /// Window rules, like sway's `for_window` / river's `rule-add`:
 ///
 ///     rule float app-id com.apple.calculator
-///     rule tags 3 app-id com.spotify.client
 ///     rule ignore title "^Picture in Picture$"
 ///     rule tile subrole AXDialog app-id com.example.Thing
 public struct Rule: Equatable, @unchecked Sendable {
     public enum Action: Equatable, Sendable {
         case float, tile, ignore
-        case tags(UInt32)
         case output(Int)   // 1-based index in left-to-right display order
     }
 
@@ -60,7 +58,6 @@ public struct Rule: Equatable, @unchecked Sendable {
         case .float: a = "float"
         case .tile: a = "tile"
         case .ignore: a = "ignore"
-        case .tags(let t): a = "tags \(Tags.describe(t))"
         case .output(let o): a = "output \(o)"
         }
         let m = matchers.map { m -> String in
@@ -77,14 +74,13 @@ public struct Rule: Equatable, @unchecked Sendable {
 
 public struct Classification: Equatable, Sendable {
     public var management: Management
-    public var tags: UInt32?
     public var outputIndex: Int?
     public var reason: String
 }
 
 /// Decides how a new window is managed. Pure: rules first, then heuristics on AX attributes.
 public func classify(_ s: WindowSnapshot, rules: [Rule]) -> Classification {
-    var c = Classification(management: .tile, tags: nil, outputIndex: nil, reason: "a normal window")
+    var c = Classification(management: .tile, outputIndex: nil, reason: "a normal window")
     var managementFromRule = false
     // Later rules override earlier ones, like a config file is expected to behave.
     for r in rules where r.matches(s) {
@@ -92,7 +88,6 @@ public func classify(_ s: WindowSnapshot, rules: [Rule]) -> Classification {
         case .float: c.management = .float; managementFromRule = true; c.reason = "rule"
         case .tile: c.management = .tile; managementFromRule = true; c.reason = "rule"
         case .ignore: c.management = .ignore; managementFromRule = true; c.reason = "rule"
-        case .tags(let t): c.tags = t
         case .output(let o): c.outputIndex = o
         }
     }

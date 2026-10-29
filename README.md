@@ -15,8 +15,8 @@
 
 <p align="center">
   <b>A Wayland-style tiling window manager for macOS.</b><br>
-  The compositor owns the geometry, every action is a command and desktops are tags that switch
-  instantly. Native Swift on top of Accessibility, event-driven, with an exact layout solver and
+  The compositor owns the geometry, every action is a command and each macOS desktop tiles its
+  own windows. Native Swift on top of Accessibility, event-driven, with an exact layout solver and
   one thread per app so a hung app never freezes the rest. <b>No SIP changes required.</b>
 </p>
 
@@ -30,17 +30,17 @@
 
 ```sh
 xanectl layout tile
-xanectl "view 2; focus main"    # one atomic commit
+xanectl "layout tile; focus main"    # one atomic commit
 xanectl query windows | jq
 ```
 
 ## Highlights
 
 - **Five layouts:** `dwindle`, `tile`, `columns`/`rows`, `grid` and `monocle`, solved exactly in closed form, respecting every app's minimum size.
-- **Tags instead of Spaces:** `⌃1…9` switches desktops instantly, with no Mission Control animation. View several tags at once or put a window on several. Prefer macOS desktops? `set desktops spaces` tiles each Space on its own.
+- **macOS desktops:** each Mission Control desktop tiles its own windows. `⌃1…9` shows a desktop and `⌃⇧1…9` carries the focused window there.
 - **One command language** for the config file, the key bindings and the `xanectl` CLI, plus a JSON event stream for status bars.
 - **The compositor is in charge:** apps that move or resize their tiled windows on their own are put back.
-- **Built to never lose a window:** parked windows come back on quit and after a crash, and tags are restored across restarts.
+- **Built to never lose a window:** windows left off-screen by a crash come back, and floating state and displays are restored across restarts.
 - **Mouse aware:** instant focus-follows-mouse, drag a window onto another to swap them, drag an edge to resize.
 
 ## Installation
@@ -86,9 +86,9 @@ All default bindings use the `⌃⌥` prefix, except desktops.
 | `⌃⌥ =` / `-` | More / fewer main windows (`tile`) |
 | `⌃⌥ o` | Rotate the orientation (`tile`) |
 | `⌃⌥ 0` | Reset ratios |
-| `⌃ 1…9` | View desktop (tag) N; pressing it again goes back to the previous one |
-| `⌃⇧ 1…9` | Move the window to desktop N |
-| `⌃⌥ tab` | Previous tags |
+| `⌃ 1…9` | Show desktop N; pressing it again goes back to the previous one |
+| `⌃⇧ 1…9` | Carry the window to desktop N |
+| `⌃⌥ tab` | Previous desktop |
 | `⌃⌥ [` / `]` | Focus the previous / next display (with `⇧`: move the window) |
 | `⌃⌥ r` / `⌃⌥⇧ r` | Retile everything / reload config |
 | `⌃⌥⇧ p` | Pause / resume |
@@ -115,20 +115,20 @@ set default-layout dwindle
 set focus-follows-mouse on
 set focus-follows-mouse-delay 0   # 0 = instant
 rule float app-id com.apple.systempreferences
-rule tags 9 app-id com.spotify.client
+rule output 2 app-id com.spotify.client
 bind ctrl+alt+t layout tile
 bind hyper+b exec open -a Safari
 ```
 
-#### macOS Spaces instead of tags
+#### Desktops
 
-With `set desktops spaces`, the desktops are the ones in Mission Control. Each Space tiles its own
-windows, `view N` (`⌃N`) shows desktop N and `tag N` (`⌃⇧N`) carries the focused window there.
-Turn on "Switch to Desktop N" in System Settings → Keyboard → Keyboard Shortcuts → Mission Control:
-XaneWM switches through those shortcuts, so the Dock's animation stays. To carry a window, XaneWM
-holds it by its title bar while it presses the shortcut, as Amethyst does: the pointer jumps for
-half a second and you go along with the window. A Space shows one desktop at a time, so
-`view-toggle` and `tag-toggle` are not available.
+Desktops are the macOS ones (Mission Control), and each tiles its own windows. `desktop N` (`⌃N`)
+shows desktop N and `move-to-desktop N` (`⌃⇧N`) carries the focused window there. XaneWM switches
+through the Mission Control shortcuts, so the Dock does the switch: with "Switch to Desktop N" on
+(System Settings → Keyboard → Keyboard Shortcuts → Mission Control) it jumps straight there,
+otherwise it steps with "Move left/right a space" (`⌃←` `⌃→`, on by default). To carry a window,
+XaneWM holds it by its title bar while it switches, as Amethyst does: the pointer jumps for half a
+second and you go along with the window.
 
 Reload it with `xanectl reload` or `⌃⌥⇧ r`. If one of your bindings uses the same keys as an enabled
 macOS shortcut, XaneWM warns you in its menu, because macOS takes the key without reporting an error.
@@ -139,9 +139,9 @@ macOS shortcut, XaneWM warns you in its menu, because macOS takes the key withou
 Options: `gap`, `gap-inner`, `gap-outer`, `default-layout`, `main-ratio`,
 `attach top|bottom|after-focused`, `overflow stack|float`, `max-tiled`,
 `new-window-output pointer|focused|app`, `focus-follows-mouse`, `focus-follows-mouse-delay`,
-`mouse-follows-focus`, `view-back-and-forth`, `follow-activation`, `border`, `border-width`,
+`mouse-follows-focus`, `desktop-back-and-forth`, `border`, `border-width`,
 `border-color accent|#RRGGBB`, `border-radius`, `edges <top right bottom left>`,
-`enforce-layout`, `desktops tags|spaces`.
+`enforce-layout`.
 
 Keys: `ctrl alt shift cmd` (or `hyper` / `meh`) + `a-z 0-9 return space tab escape left right up down
 comma period slash semicolon quote leftbracket rightbracket backslash minus equal grave f1-f20`.
@@ -156,10 +156,9 @@ float|fullscreen [toggle|on|off]                           close
 layout dwindle|tile|columns|rows|grid|monocle|next|prev
 main-ratio 0.6|+0.05|-0.05      main-count 2|+1|-1      orientation left|right|top|bottom|next
 resize grow|shrink [0.05] [horizontal|vertical]           reset-layout
-view N|1,3|all|prev   view-toggle N   tag N|all   tag-toggle N
-set-focused-tags MASK   set-view-tags MASK                 (river-compatible)
+desktop N|left|right|back      move-to-desktop N|left|right|back
 focus-output next|prev|left|right|N     send-to-output next|prev|left|right|N
-set <option> <value>    rule float|tile|ignore|tags N|output N  app-id X [title REGEX] [subrole S]
+set <option> <value>    rule float|tile|ignore|output N  app-id X [title REGEX] [subrole S]
 bind <keys> <command…>    unbind <keys>|all    rule-clear
 query windows|outputs|tree|state|bindings|rules|options    subscribe
 exec <shell>    retile    reload    pause|resume|toggle-pause    settings    quit
@@ -172,7 +171,7 @@ Separate several commands with `;` to apply them as a single commit.
 ```sh
 xanectl subscribe | while read -r ev; do echo "$ev"; done      # JSON events, e.g. for SketchyBar
 xanectl query outputs -p
-xanectl rule tags 9 app-id com.spotify.client
+xanectl rule output 2 app-id com.spotify.client
 ```
 
 ## How it works
@@ -185,12 +184,11 @@ Accessibility:
 | Wayland principle | How it applies here |
 |---|---|
 | **The compositor is in charge.** Clients do not decide their geometry. | The compositor's state is the source of truth and the screen is its projection. If an app moves or resizes a tiled window on its own (`AXMoved`/`AXResized` without a user drag), it is put back. If it keeps insisting, it is left alone for a while to avoid loops. |
-| **Double-buffered state and atomic commit** (`wl_surface.commit`). | Commands modify `pending`. `commit()` computes the full layout, diffs it against reality and produces a `Transaction` with every change at once. `view 2; focus main` is applied in one go, with no intermediate states. |
+| **Double-buffered state and atomic commit** (`wl_surface.commit`). | Commands modify `pending`. `commit()` computes the full layout, diffs it against reality and produces a `Transaction` with every change at once. `layout tile; focus main` is applied in one go, with no intermediate states. |
 | **configure / ack with a serial** (`xdg_surface`). | Every geometry request carries a serial. The app "acks" with the frame it actually took. Stale acks are discarded. If the window ends up larger than requested, that is its minimum size (`set_min_size`) and it is learned. |
 | **Interactive grabs** (move/resize grab). | Nothing moves under the user while the button is held. On release the gesture is interpreted: resizing changes the layout ratios, and dropping onto another window swaps them or sends it to another display. |
 | **Everything is an IPC command** (swaymsg, riverctl). | A single language for the config, the key bindings and `xanectl`, served over a Unix socket (`/tmp/xanewm-<uid>.sock`). `xanectl subscribe` emits JSON events. |
 | **Pure layout generators** (river-layout). | `XaneCore` knows nothing about AppKit: from (area, window count, minimums, parameters) to rectangles. It can be tested on any platform. |
-| **Tags instead of desktops** (river, dwm). | Each display shows a tag mask and each window has its own. You can view several tags at once and put a window on several. |
 | **No polling: everything is event-driven.** | One `AXObserver` per app (create, destroy, move, resize, focus, minimize, hide), plus `NSWorkspace` and display notifications. The Accessibility permission is awaited through the system notification. |
 
 ### Architecture
@@ -246,12 +244,12 @@ distort `grid` with 4.
 
 ### Robustness
 
-- **Never loses windows.** On quit (menu, `xanectl quit`, `SIGTERM`) parked windows are brought back into view. After a crash, any off-screen window is recovered on startup, and each window's tags are restored from `~/Library/Application Support/xanewm/state.json`.
+- **Never loses windows.** XaneWM never hides windows off-screen: other desktops are macOS Spaces. A floating window found off every screen (left there by a crash of an older version) is brought back, and each window's floating state and display are restored from `~/Library/Application Support/xanewm/state.json`.
 - **Hung apps.** AX calls time out after 0.25 s per window and 0.5 s per app. An unresponsive app only blocks its own thread, and its windows are kept.
 - **Lost requests.** Every configure expires after 1.5 s. If reality does not match the request, the next commit resends it.
 - **Apps that fight back.** If a window is repositioned more than 4 times in 3 s, it is left alone for a while.
 - **Half-created windows.** They are re-examined after 0.2 s and 0.8 s, and again if they change size.
-- **Native Spaces.** Only the current Space is managed. Windows on other Spaces keep their place in the model and are laid out again when you return. Native tabs just work: only the visible tab takes a tile.
+- **Desktops are macOS Spaces.** Windows on other desktops keep their place in the model and are laid out again when you return. Windows above normal level (floating panels, overlays that show on every desktop) are left out of the layout. Native tabs just work: only the visible tab takes a tile.
 - **Single instance** per socket. With `make autostart`, launchd restarts it if it crashes.
 - **Private logs.** App names are logged with `privacy: .private` and window titles are never logged.
 
@@ -265,7 +263,7 @@ XaneWM started from a study of Shoji 1.2.3 and addresses its weak spots:
 | 1 | AX off the main thread, in parallel per app | `AppWorker`: one thread per app and coalesced requests (only the latest one per window is applied) |
 | 2 | `AXMoved`/`AXResized` and incremental inventory | Per-window events; a full inventory only as a fallback (Space change, wake) |
 | 3 | Minimums per window kind | `bundleID` + `AXIdentifier` (or subrole) key |
-| 4 | Robust hiding spot for parked windows | Corner chosen by geometry (no neighbouring display), verified and retried |
+| 4 | No hiding spot at all | Desktops are macOS Spaces, so no window is ever parked off-screen |
 | 5 | Private logs | `os.Logger` with `privacy: .private` for app names; titles are never logged |
 | 6 | Closed-form ratio | Exact solver instead of 12 bisection iterations per layout |
 | 7 | Aspect-aware grid | `dwindle` and `grid` |
@@ -285,10 +283,9 @@ screen lock and sleep, and the 28 pt cascade for whatever does not fit.
 
 ## Known limitations
 
-- **Moving windows between native Spaces is a workaround.** The private call for it needs SIP off since macOS 14.5, so `desktops spaces` drags the window by its title bar while it switches. A window with no title bar (or with a custom one) may not go along.
-- **The native Spaces animation cannot be removed.** The Dock performs it, and skipping it requires disabling SIP (as yabai does). "Reduce motion" only swaps it for a fade. XaneWM desktops (`⌃1…9`) are tags: they switch instantly, with no animation.
-- **`⌃1…9` clashes with Mission Control's "Switch to Desktop N"** with `desktops tags` if you have it enabled: macOS keeps the key. Turn it off in System Settings → Keyboard → Keyboard Shortcuts → Mission Control. XaneWM warns in its menu when it detects a clash.
-- **It uses a single private call:** `_AXUIElementGetWindow`, to give each window a stable identity shared with `CGWindowList`. yabai, AeroSpace, Amethyst and Rectangle use it, and it has been stable for years. `desktops spaces` adds two read-only SkyLight calls to list the Spaces. Everything else is public API and does not require disabling SIP.
+- **Moving windows between desktops is a workaround.** The private call for it needs SIP off since macOS 14.5, so XaneWM drags the window by its title bar while it switches. A window with no title bar (or with a custom one) may not go along.
+- **The desktop switch animation cannot be removed.** The Dock performs it, and skipping it requires disabling SIP (as yabai does). "Reduce motion" swaps it for a shorter fade.
+- **Private calls:** `_AXUIElementGetWindow`, to give each window a stable identity shared with `CGWindowList` (yabai, AeroSpace, Amethyst and Rectangle use it, and it has been stable for years), and two read-only SkyLight calls to list the desktops. Everything else is public API and does not require disabling SIP.
 - **Stage Manager:** tiling pauses while it is active.
 - **Native fullscreen:** the window moves to its own Space and leaves the tiling. `fullscreen` (`⌃⌥ f`) is the compositor's alternative.
 - **Carbon hotkeys:** they do not work while another app uses Secure Input (password fields). This is a system restriction.

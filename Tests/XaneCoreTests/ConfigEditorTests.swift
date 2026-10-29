@@ -24,25 +24,25 @@ final class ConfigEditorTests: XCTestCase {
     }
 
     func testBindingsRewriteRemoveAndAdd() {
-        var e = ConfigEditor("bind ctrl+alt+h focus left   # vim\nbind alt+ctrl+h zoom\nbind ctrl+1 view 1\n# end\n")
+        var e = ConfigEditor("bind ctrl+alt+h focus left   # vim\nbind alt+ctrl+h zoom\nbind ctrl+1 desktop 1\n# end\n")
         XCTAssertEqual(e.bindings.count, 2)
         XCTAssertEqual(e.bindings.first?.command, "zoom")
         e.setBinding(KeyCombo.parse("ctrl+alt+h")!, "focus right")
         // The line that won (the last) is the one rewritten.
-        XCTAssertEqual(e.lines, ["bind ctrl+alt+h focus right", "bind ctrl+1 view 1", "# end", ""])
+        XCTAssertEqual(e.lines, ["bind ctrl+alt+h focus right", "bind ctrl+1 desktop 1", "# end", ""])
         e = ConfigEditor("bind ctrl+alt+h focus left   # vim\n")
         e.setBinding(KeyCombo.parse("ctrl+alt+h")!, "zoom")
         XCTAssertEqual(e.lines[0], "bind ctrl+alt+h zoom         # vim")
-        e = ConfigEditor("bind ctrl+alt+h focus right\nbind ctrl+1 view 1\n# end\n")
-        e.setBinding(KeyCombo.parse("ctrl+2")!, "view 2")
-        XCTAssertEqual(e.lines[2], "bind ctrl+2 view 2")
+        e = ConfigEditor("bind ctrl+alt+h focus right\nbind ctrl+1 desktop 1\n# end\n")
+        e.setBinding(KeyCombo.parse("ctrl+2")!, "desktop 2")
+        XCTAssertEqual(e.lines[2], "bind ctrl+2 desktop 2")
         e.setBinding(KeyCombo.parse("ctrl+1")!, nil)
-        XCTAssertEqual(e.bindings.map(\.command), ["focus right", "view 2"])
+        XCTAssertEqual(e.bindings.map(\.command), ["focus right", "desktop 2"])
     }
 
     func testRulesRoundTrip() throws {
         var e = ConfigEditor("rule float app-id a.b\n# keep\nrule float app-id c.d\nbind ctrl+x close\n")
-        let r1 = try Rule(action: .tags(Tags.mask(3)!), matchers: [.appName("Visual Studio Code")])
+        let r1 = try Rule(action: .output(2), matchers: [.appName("Visual Studio Code")])
         let r2 = try Rule(action: .ignore, matchers: [.title("^Say \"hi\"$")])
         let r3 = try Rule(action: .float, matchers: [.appID("x.y")])
         e.setRules([r1, r2, r3])

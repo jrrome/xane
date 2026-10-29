@@ -123,51 +123,13 @@ extension Compositor {
             pending.outputs[oid] = o
             return []
 
-        // MARK: tags
-        case .view(let arg):
-            if pending.options.desktops == .spaces {
-                guard case .mask(let m) = arg else { return [.viewSpace(nil)] }
-                return [.viewSpace(try singleDesktop(m))]
-            }
-            guard let oid = pending.focusedOutput ?? pending.subjectOutput, var o = pending.outputs[oid] else { return [] }
-            switch arg {
-            case .previous:
-                swap(&o.tags, &o.previousTags)
-            case .mask(let m):
-                if o.tags == m {
-                    guard pending.options.viewBackAndForth, o.previousTags != m else { return [] }
-                    swap(&o.tags, &o.previousTags)
-                } else {
-                    o.previousTags = o.tags
-                    o.tags = m
-                }
-            }
-            pending.outputs[oid] = o
-            return refocus(on: oid)
+        // MARK: desktops (macOS Spaces: the platform layer switches them)
+        case .desktop(let t):
+            return [.showDesktop(t)]
 
-        case .viewToggle(let m):
-            try requireTags("view-toggle")
-            guard let oid = pending.focusedOutput ?? pending.subjectOutput, var o = pending.outputs[oid] else { return [] }
-            let t = o.tags ^ m
-            guard t != 0 else { return [] }
-            o.previousTags = o.tags
-            o.tags = t
-            pending.outputs[oid] = o
-            return refocus(on: oid)
-
-        case .tag(let m):
-            guard let me = pending.subject, let w = pending.windows[me] else { throw CommandError.nothingToActOn }
-            if pending.options.desktops == .spaces { return [.moveToSpace(me, try singleDesktop(m))] }
-            pending.windows[me]?.tags = m
-            return pending.isVisible(me) ? [] : refocus(on: w.output)
-
-        case .tagToggle(let m):
-            try requireTags("tag-toggle")
-            guard let me = pending.subject, let w = pending.windows[me] else { throw CommandError.nothingToActOn }
-            let t = w.tags ^ m
-            guard t != 0 else { return [] }
-            pending.windows[me]?.tags = t
-            return pending.isVisible(me) ? [] : refocus(on: w.output)
+        case .moveToDesktop(let t):
+            guard let me = pending.subject else { throw CommandError.nothingToActOn }
+            return [.moveToDesktop(me, t)]
 
         // MARK: outputs
         case .focusOutput(let t):
@@ -184,7 +146,6 @@ extension Compositor {
                   let src = pending.outputs[w.output], let dst = pending.outputs[to] else { return [] }
             var nw = w
             nw.output = to
-            nw.tags = dst.tags
             if w.floating {
                 // Keep the same relative position on the new display.
                 let f = w.floatingFrame ?? w.frame
@@ -243,20 +204,6 @@ extension Compositor {
         }
     }
 
-    /// A macOS Space shows one desktop at a time and a window lives on one.
-    private func singleDesktop(_ m: UInt32) throws -> Int {
-        guard m.nonzeroBitCount == 1, let n = Tags.first(m) else {
-            throw CommandError.invalidArgument("one desktop at a time with 'desktops spaces'")
-        }
-        return n
-    }
-
-    private func requireTags(_ command: String) throws {
-        guard pending.options.desktops == .tags else {
-            throw CommandError.invalidArgument("\(command) needs 'desktops tags'")
-        }
-    }
-
     private func requestFloatingPlacement(_ id: WindowID) {
         placeFloating.insert(id)
     }
@@ -270,14 +217,6 @@ extension Compositor {
         pending.focusHistory.removeAll { $0 == id }
         pending.focusHistory.insert(id, at: 0)
         return [.focus(id)]
-    }
-
-    /// After the visible set of an output changed: focus what should be focused there.
-    func refocus(on output: OutputID) -> [Effect] {
-        if let f = pending.focused, pending.isVisible(f), pending.windows[f]?.output == output { return [] }
-        if let c = pending.focusCandidate(on: output) { return focus(c) }
-        pending.focused = nil
-        return [.focusDesktop]
     }
 
     func resolve(_ t: Target, tiledOnly: Bool) throws -> WindowID? {

@@ -351,18 +351,6 @@ final class AppWorker {
         if schedule { perform { [weak self] in self?.drain() } }
     }
 
-    /// Applies synchronously (bounded), used when quitting so nothing stays parked off-screen.
-    func applyAndWait(_ configures: [Configure], timeout: TimeInterval) {
-        let done = DispatchSemaphore(value: 0)
-        perform { [weak self] in
-            if let self {
-                for c in configures { if let el = self.windows[c.window] { _ = self.configure(el, c) } }
-            }
-            done.signal()
-        }
-        _ = done.wait(timeout: .now() + timeout)
-    }
-
     private func drain() {
         lock.lock()
         let order = queuedOrder, batch = queued, toggle = toggleEnhancedUI
@@ -405,12 +393,7 @@ final class AppWorker {
     /// window that is still at its old (bigger) size towards an edge gets it clamped. Shrink first
     /// when shrinking, move first when growing, and size–move–size when mixed.
     private func configure(_ el: AXUIElement, _ c: Configure) -> (CGRect?, AXError) {
-        if c.isParking {
-            let e = AX.set(el, position: c.origin)
-            if e == .invalidUIElement || e == .cannotComplete { return (nil, e) }
-            return (readFrame(el).0, .success)
-        }
-        guard let t = c.frame else { return (nil, .success) }
+        let t = c.frame
         var err: AXError = .success
         func size() { let e = AX.set(el, size: t.size); if e != .success { err = e } }
         func move() { let e = AX.set(el, position: t.origin); if e != .success { err = e } }

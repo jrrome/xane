@@ -20,11 +20,12 @@ final class CommandTests: XCTestCase {
         XCTAssertEqual(one("main-count -1"), .mainCount(.delta(-1)))
         XCTAssertEqual(one("resize grow 0.1 horizontal"), .resize(delta: 0.1, axis: .horizontal))
         XCTAssertEqual(one("resize shrink"), .resize(delta: -0.05, axis: nil))
-        XCTAssertEqual(one("view 3"), .view(.mask(4)))
-        XCTAssertEqual(one("view 1,3"), .view(.mask(5)))
-        XCTAssertEqual(one("view prev"), .view(.previous))
-        XCTAssertEqual(one("tag all"), .tag(Tags.all))
-        XCTAssertEqual(one("set-focused-tags 0x6"), .view(.mask(6)))
+        XCTAssertEqual(one("desktop 3"), .desktop(.number(3)))
+        XCTAssertEqual(one("desktop back"), .desktop(.back))
+        XCTAssertEqual(one("workspace next"), .desktop(.right))
+        XCTAssertEqual(one("move-to-desktop left"), .moveToDesktop(.left))
+        XCTAssertNil(one("desktop 0"))
+        XCTAssertNil(one("view 2"))
         XCTAssertEqual(one("focus-output 2"), .focusOutput(.index(2)))
         XCTAssertEqual(one("toggle-float"), .float(.toggle))
         XCTAssertEqual(one("fullscreen on"), .fullscreen(.on))
@@ -82,11 +83,12 @@ final class CommandTests: XCTestCase {
     }
 
     func testRules() throws {
-        guard case .rule(let r)? = one("rule tags 9 app-id com.spotify.client") else { return XCTFail() }
-        XCTAssertEqual(r.action, .tags(256))
+        guard case .rule(let r)? = one("rule output 2 app-id com.spotify.client") else { return XCTFail() }
+        XCTAssertEqual(r.action, .output(2))
         let s = WindowSnapshot(id: 1, pid: 1, bundleID: "com.spotify.client")
         XCTAssertTrue(r.matches(s))
-        XCTAssertEqual(classify(s, rules: [r]).tags, 256)
+        XCTAssertEqual(classify(s, rules: [r]).outputIndex, 2)
+        XCTAssertNil(one("rule tags 9 app-id com.spotify.client"))
         guard case .rule(let t)? = one("rule float title \"^Picture in Picture$\"") else { return XCTFail() }
         XCTAssertTrue(t.matches(WindowSnapshot(id: 2, pid: 1, title: "Picture in Picture")))
         XCTAssertFalse(t.matches(WindowSnapshot(id: 2, pid: 1, title: "Not Picture in Picture")))

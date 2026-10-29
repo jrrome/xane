@@ -7,8 +7,6 @@ import CoreGraphics
 public enum Placement: Equatable, Sendable {
     /// A frame chosen by the compositor (tile, compositor fullscreen, overflow, restored float).
     case frame(CGRect)
-    /// Out of view: the window belongs to a tag that is not shown.
-    case park(CGPoint)
     /// Visible floating window: the client owns its geometry.
     case untouched
 }
@@ -19,10 +17,7 @@ public struct Configure: Equatable, Sendable {
     public var window: WindowID
     public var pid: Int32
     public var serial: UInt64
-    /// Full frame, or nil to move without resizing (parking).
-    public var frame: CGRect?
-    public var origin: CGPoint
-    public var isParking: Bool
+    public var frame: CGRect
 }
 
 public struct OutputLayout: Equatable, Sendable {
@@ -42,15 +37,12 @@ public struct Transaction: Sendable {
     public var raise: [WindowID] = []
     public var tiled = 0
     public var floating = 0
-    public var hidden = 0
     public var isEmpty: Bool { configures.isEmpty && raise.isEmpty }
 }
 
 /// Side effects a command asks the platform layer to perform.
 public enum Effect: Equatable, Sendable {
     case focus(WindowID)
-    /// Nothing visible to focus: hand focus to the desktop so keys don't go to a hidden window.
-    case focusDesktop
     case close(WindowID)
     case warp(CGPoint)
     case exec(String)
@@ -60,10 +52,10 @@ public enum Effect: Equatable, Sendable {
     case subscribe
     case retile
     case openSettings
-    /// `desktops spaces`: show macOS desktop N (Mission Control numbering), or the previous one.
-    case viewSpace(Int?)
-    /// `desktops spaces`: carry a window to macOS desktop N.
-    case moveToSpace(WindowID, Int)
+    /// Show a macOS desktop (Space).
+    case showDesktop(DesktopTarget)
+    /// Carry a window to a macOS desktop.
+    case moveToDesktop(WindowID, DesktopTarget)
 }
 
 public enum AckOutcome: Equatable, Sendable {
@@ -72,8 +64,6 @@ public enum AckOutcome: Equatable, Sendable {
     case settled
     /// The client came out bigger than asked: probably its minimum size.
     case tooBig(asked: CGRect)
-    /// A parked window did not stay where it was put.
-    case misplaced(asked: CGPoint)
 }
 
 public enum Observation: Equatable, Sendable {
@@ -93,17 +83,14 @@ public final class Compositor {
     public private(set) var layouts: [OutputID: OutputLayout] = [:]
     public var minimumSizes = MinimumSizeStore()
     public private(set) var outputSettings: [String: OutputSettings] = [:]
-    /// Tags/float state of windows from a previous run, so a restart of the compositor does not
-    /// shuffle everything. Keyed by window id, validated by pid.
+    /// Float state and display of windows from a previous run, so a restart of the compositor does
+    /// not shuffle everything. Keyed by window id, validated by pid.
     public var restoredWindows: [WindowID: PersistedWindow] = [:]
 
-    struct Inflight { var serial: UInt64; var frame: CGRect?; var origin: CGPoint; var parking: Bool; var sentAt: TimeInterval }
+    struct Inflight { var serial: UInt64; var frame: CGRect; var sentAt: TimeInterval }
     private var inflight: [WindowID: Inflight] = [:]
-    /// Windows whose last request was "park".
-    public private(set) var parked: Set<WindowID> = []
     /// Floating windows that need their floating frame applied on the next commit.
     var placeFloating: Set<WindowID> = []
-    private var lastTileFrame: [WindowID: CGRect] = [:]
     private var serial: UInt64 = 0
     public let inflightTTL: TimeInterval = 1.5
 
@@ -128,9 +115,9 @@ public final class Compositor {
         var next: [OutputID: Output] = [:]
         for var o in list {
             if let old = pending.outputs[o.id], old.uuid == o.uuid {
-                o.tags = old.tags; o.previousTags = old.previousTags; o.layout = old.layout; o.params = old.params
+                o.layout = old.layout; o.params = old.params
             } else if let s = outputSettings[o.uuid] {
-                o.tags = s.tags == 0 ? 1 : s.tags; o.previousTags = o.tags; o.layout = s.layout; o.params = s.params
+                o.layout = s.layout; o.params = s.params
             } else {
                 o.layout = pending.options.defaultLayout
                 o.params = LayoutParams(mainRatio: pending.options.mainRatio)
@@ -171,7 +158,7 @@ public final class Compositor {
 
         var w = Window(id: s.id, pid: s.pid, bundleID: s.bundleID, appName: s.appName, title: s.title,
                        subrole: s.subrole, minimumSizeKey: s.minimumSizeKey, output: output,
-                       tags: restored?.tags ?? c.tags ?? o.tags, floating: floating, frame: s.frame)
+                       floating: floating, frame: s.frame)
         w.minimized = s.isMinimized
         w.nativeFullscreen = s.isNativeFullscreen
         w.canResize = s.isSizeSettable
@@ -190,11 +177,11 @@ public final class Compositor {
                 pending.order.insert(s.id, at: i + 1)
             } else { pending.order.append(s.id) }
         }
-        // A window that is off every screen (e.g. still parked by a compositor that crashed) must
-        // be brought back: treat it as parked so the next commit reveals it.
-        if !onScreen {
-            parked.insert(s.id)
-            if floating { pending.windows[s.id]?.floatingFrame = centered(size: s.frame.size, on: o) }
+        // A floating window off every screen (e.g. hidden by an older version that crashed) is
+        // brought back to the middle of its display. Tiled ones get their tile anyway.
+        if !onScreen && floating {
+            pending.windows[s.id]?.floatingFrame = centered(size: s.frame.size, on: o)
+            placeFloating.insert(s.id)
         }
         return true
     }
@@ -206,9 +193,7 @@ public final class Compositor {
         pending.focusHistory.removeAll { $0 == id }
         if pending.focused == id { pending.focused = nil }
         inflight[id] = nil
-        parked.remove(id)
         placeFloating.remove(id)
-        lastTileFrame[id] = nil
         placements[id] = nil
     }
 
@@ -227,19 +212,17 @@ public final class Compositor {
     /// Windows the server does not know yet (just created) are considered present.
     public func setSpacePresence(onScreen: Set<WindowID>, known: Set<WindowID>) {
         let changes = pending.windows.values.compactMap { w -> (WindowID, Bool)? in
-            let present = onScreen.contains(w.id) || !known.contains(w.id) || parked.contains(w.id)
+            let present = onScreen.contains(w.id) || !known.contains(w.id)
             return w.onCurrentSpace != present ? (w.id, present) : nil
         }
         for (id, present) in changes { fact(id) { $0.onCurrentSpace = present } }
     }
 
-    /// The system reports a focus change. Returns true when the compositor state changed in a way
-    /// that needs a commit (e.g. the focused window lives on a hidden tag).
-    @discardableResult
-    public func systemFocused(_ id: WindowID?) -> Bool {
+    /// The system reports a focus change.
+    public func systemFocused(_ id: WindowID?) {
         guard let id, let w = pending.windows[id] else {
             pending.focused = nil
-            return false
+            return
         }
         pending.focused = id
         pending.focusHistory.removeAll { $0 == id }
@@ -248,15 +231,6 @@ public final class Compositor {
         pending.focusedOutput = w.output
         current.focused = id
         current.focusedOutput = w.output
-        if w.isPresent, !pending.isVisible(w), pending.options.followActivation, var o = pending.outputs[w.output] {
-            // Activated from outside (⌘-Tab, Dock, notification): show its tag instead of letting it
-            // sit focused but invisible.
-            o.previousTags = o.tags
-            o.tags = (w.tags & o.tags != 0) ? o.tags : (Tags.first(w.tags).flatMap(Tags.mask) ?? w.tags)
-            pending.outputs[w.output] = o
-            return true
-        }
-        return false
     }
 
     // MARK: - Commit
@@ -273,11 +247,7 @@ public final class Compositor {
             let orphans = pending.windows.values.filter { pending.outputs[$0.output] == nil }
             for w in orphans {
                 let oid = pending.output(for: w.frame) ?? pending.outputOrder[0]
-                let tags = pending.outputs[oid]?.tags ?? 1
-                var moved = w
-                moved.output = oid
-                moved.tags = tags
-                pending.windows[w.id] = moved
+                pending.windows[w.id]?.output = oid
                 if w.floating { placeFloating.insert(w.id) }
             }
             if pending.focusedOutput.map({ pending.outputs[$0] == nil }) ?? true {
@@ -297,10 +267,7 @@ public final class Compositor {
         var next: [WindowID: Placement] = [:]
         var nextLayouts: [OutputID: OutputLayout] = [:]
 
-        if s.paused {
-            // Hands off, but never leave windows stranded out of view.
-            for id in parked { if let w = s.windows[id], w.isPresent { next[id] = .frame(revealFrame(w, s)) } }
-        } else {
+        if !s.paused {
             for oid in s.outputOrder {
                 guard let o = s.outputs[oid] else { continue }
                 let area = s.usableArea(of: o)
@@ -313,7 +280,7 @@ public final class Compositor {
                 let res = LayoutEngine.layout(req) { n in s.ratios[s.ratioKey(o, o.layout, n)] ?? [] }
                 var overflow: [Int] = []
                 for (i, id) in tiled.enumerated() {
-                    if let f = res.frames[i] { next[id] = .frame(f); lastTileFrame[id] = f; tx.tiled += 1 }
+                    if let f = res.frames[i] { next[id] = .frame(f); tx.tiled += 1 }
                     else { overflow.append(i) }
                 }
                 if !overflow.isEmpty {
@@ -335,17 +302,13 @@ public final class Compositor {
                         tx.raise.append(id)
                     } else if w.floating {
                         tx.floating += 1
-                        if parked.contains(id) || placeFloating.contains(id) {
+                        if placeFloating.contains(id) {
                             next[id] = .frame(w.floatingFrame ?? centered(size: w.frame.size, on: o))
                         } else {
                             next[id] = .untouched
                         }
                     }
                 }
-            }
-            for (id, w) in s.windows where w.isPresent && !s.isVisible(w) {
-                next[id] = .park(parkingPoint(for: w, in: s))
-                tx.hidden += 1
             }
         }
 
@@ -357,20 +320,11 @@ public final class Compositor {
             case .untouched:
                 continue
             case .frame(let f):
-                if !forced, let inf = inflight[id], !inf.parking, now - inf.sentAt < inflightTTL,
-                   let target = inf.frame, target.isClose(to: f, tolerance: 0.5) { continue }
-                if !forced, !parked.contains(id), w.frame.isClose(to: f, tolerance: 0.5) { inflight[id] = nil; continue }
-                tx.configures.append(makeConfigure(w, frame: f, origin: f.origin, parking: false, now: now))
-                parked.remove(id)
+                if !forced, let inf = inflight[id], now - inf.sentAt < inflightTTL,
+                   inf.frame.isClose(to: f, tolerance: 0.5) { continue }
+                if !forced, w.frame.isClose(to: f, tolerance: 0.5) { inflight[id] = nil; continue }
+                tx.configures.append(makeConfigure(w, frame: f, now: now))
                 placeFloating.remove(id)
-            case .park(let pt):
-                if !forced, let inf = inflight[id], inf.parking, now - inf.sentAt < inflightTTL { continue }
-                if !forced, parked.contains(id), w.frame.origin.isClose(to: pt, tolerance: 2) { continue }
-                if w.floating && !parked.contains(id) {
-                    pending.windows[id]?.floatingFrame = w.frame
-                }
-                tx.configures.append(makeConfigure(w, frame: nil, origin: pt, parking: true, now: now))
-                parked.insert(id)
             }
         }
 
@@ -385,29 +339,10 @@ public final class Compositor {
         return tx
     }
 
-    /// Everything back in view (used before quitting or pausing): no window must stay parked.
-    public func revealAll(now: TimeInterval) -> [Configure] {
-        var out: [Configure] = []
-        for id in pending.order where parked.contains(id) {
-            guard let w = pending.windows[id] else { continue }
-            let f = revealFrame(w, pending)
-            out.append(makeConfigure(w, frame: f, origin: f.origin, parking: false, now: now))
-        }
-        parked.removeAll()
-        return out
-    }
-
-    private func makeConfigure(_ w: Window, frame: CGRect?, origin: CGPoint, parking: Bool, now: TimeInterval) -> Configure {
+    private func makeConfigure(_ w: Window, frame: CGRect, now: TimeInterval) -> Configure {
         serial &+= 1
-        inflight[w.id] = Inflight(serial: serial, frame: frame, origin: origin, parking: parking, sentAt: now)
-        return Configure(window: w.id, pid: w.pid, serial: serial, frame: frame, origin: origin, isParking: parking)
-    }
-
-    private func revealFrame(_ w: Window, _ s: State) -> CGRect {
-        guard let o = s.outputs[w.output] else { return w.frame }
-        if w.floating, let f = w.floatingFrame { return f.clamped(into: o.visibleFrame) }
-        if let f = lastTileFrame[w.id] { return f }
-        return centered(size: w.frame.size, on: o)
+        inflight[w.id] = Inflight(serial: serial, frame: frame, sentAt: now)
+        return Configure(window: w.id, pid: w.pid, serial: serial, frame: frame)
     }
 
     func centered(size: CGSize, on o: Output) -> CGRect {
@@ -416,24 +351,9 @@ public final class Compositor {
         return CGRect(x: a.midX - w / 2, y: a.midY - h / 2, width: w, height: h).snappedInward
     }
 
-    /// Hiding spot: just past the bottom corner of the window's display, on the side where no other
-    /// display is plugged in, so a neighbour screen does not reveal it.
-    func parkingPoint(for w: Window, in s: State) -> CGPoint {
-        guard let o = s.outputs[w.output] else { return .zero }
-        let size = CGSize(width: max(w.frame.width, 1), height: max(w.frame.height, 1))
-        let others = s.outputs.values.filter { $0.id != o.id }.map(\.frame)
-        let candidates = [CGPoint(x: o.frame.maxX - 1, y: o.frame.maxY - 1),
-                          CGPoint(x: o.frame.minX - size.width + 1, y: o.frame.maxY - 1)]
-        for c in candidates {
-            let r = CGRect(origin: c, size: size).insetBy(dx: 2, dy: 2)
-            if !others.contains(where: { $0.intersects(r) }) { return c }
-        }
-        return candidates[0]
-    }
-
     private func rememberOutputSettings() {
         for o in current.outputs.values {
-            outputSettings[o.uuid] = OutputSettings(layout: o.layout, params: o.params, tags: o.tags)
+            outputSettings[o.uuid] = OutputSettings(layout: o.layout, params: o.params)
         }
     }
 
@@ -443,10 +363,7 @@ public final class Compositor {
         fact(id) { $0.frame = frame }
         guard let inf = inflight[id], inf.serial == serial else { return .stale }
         inflight[id] = nil
-        if inf.parking {
-            return frame.origin.isClose(to: inf.origin, tolerance: 2) ? .settled : .misplaced(asked: inf.origin)
-        }
-        guard let asked = inf.frame else { return .settled }
+        let asked = inf.frame
         if frame.width > asked.width + 2 || frame.height > asked.height + 2 { return .tooBig(asked: asked) }
         if let w = pending.windows[id] { minimumSizes.lower(w.minimumSizeKey, accepted: frame.size) }
         return .settled
@@ -480,7 +397,6 @@ public final class Compositor {
         if let inf = inflight[id], now - inf.sentAt < inflightTTL { return .echo }
         switch placements[id] {
         case .frame(let f): return frame.isClose(to: f, tolerance: 2) ? .echo : .external
-        case .park(let p): return frame.origin.isClose(to: p, tolerance: 2) ? .echo : .external
         case .untouched, .none: return .echo
         }
     }
@@ -493,9 +409,8 @@ public final class Compositor {
     public func interactiveEnd(_ id: WindowID, pointer: CGPoint) -> Bool {
         guard let w = pending.windows[id] else { return false }
         if w.floating {
-            if let oid = pending.output(for: w.frame), oid != w.output, let o = pending.outputs[oid] {
+            if let oid = pending.output(for: w.frame), oid != w.output {
                 pending.windows[id]?.output = oid
-                pending.windows[id]?.tags = o.tags
             }
             pending.windows[id]?.floatingFrame = nil
             return false
@@ -511,9 +426,8 @@ public final class Compositor {
         }
         if let target = tiledWindow(at: pointer, excluding: id) {
             swapWindows(id, target)
-        } else if let oid = pending.output(at: pointer), oid != w.output, let o = pending.outputs[oid] {
+        } else if let oid = pending.output(at: pointer), oid != w.output {
             pending.windows[id]?.output = oid
-            pending.windows[id]?.tags = o.tags
             pending.order.removeAll { $0 == id }
             pending.order.append(id)
             pending.focusedOutput = oid
@@ -555,8 +469,8 @@ public final class Compositor {
               let wa = pending.windows[a], let wb = pending.windows[b] else { return }
         pending.order.swapAt(ia, ib)
         if wa.output != wb.output {
-            pending.windows[a]?.output = wb.output; pending.windows[a]?.tags = wb.tags
-            pending.windows[b]?.output = wa.output; pending.windows[b]?.tags = wa.tags
+            pending.windows[a]?.output = wb.output
+            pending.windows[b]?.output = wa.output
         }
     }
 
@@ -616,7 +530,7 @@ public final class Compositor {
         p.outputs = outputSettings
         p.minimumSizes = minimumSizes
         for (id, w) in pending.windows {
-            p.windows[String(id)] = PersistedWindow(pid: w.pid, tags: w.tags, floating: w.floating,
+            p.windows[String(id)] = PersistedWindow(pid: w.pid, floating: w.floating,
                                                     outputUUID: pending.outputs[w.output]?.uuid ?? "")
         }
         return p
@@ -634,7 +548,6 @@ public final class Compositor {
 
 public struct PersistedWindow: Codable, Equatable, Sendable {
     public var pid: Int32
-    public var tags: UInt32
     public var floating: Bool
     public var outputUUID: String
 }

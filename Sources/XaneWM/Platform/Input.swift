@@ -94,8 +94,9 @@ final class HotKeys {
 /// macOS's own shortcuts (System Settings → Keyboard → Keyboard Shortcuts) win over
 /// RegisterEventHotKey without any error, so a binding they share silently never fires.
 enum SystemShortcuts {
-    /// "Switch to Desktop 1…9" in the Mission Control section.
+    /// "Switch to Desktop 1…9" and "Move left/right a space" in the Mission Control section.
     static let desktopIDs = 118...126
+    static let moveLeft = 79, moveRight = 81
 
     /// Enabled system shortcuts by symbolic hot key id.
     static func enabled() -> [Int: KeyCombo] {
@@ -108,9 +109,9 @@ enum SystemShortcuts {
             if let value = entry["value"] as? [String: Any], let params = value["parameters"] as? [Int], params.count == 3 {
                 guard params[1] != 0xFFFF else { continue }
                 out[id] = KeyCombo(keyCode: UInt32(params[1]), modifiers: modifiers(params[2]))
-            } else if desktopIDs.contains(id), let code = Keys.code(for: String(id - 117)) {
-                // Turned on but never edited: the default is ctrl+N.
-                out[id] = KeyCombo(keyCode: code, modifiers: .ctrl)
+            } else if let key = defaults[id] {
+                // Turned on but never edited.
+                out[id] = key
             }
         }
         return out
@@ -122,10 +123,12 @@ enum SystemShortcuts {
             .sorted { $0.combo.description < $1.combo.description }
     }
 
-    static func desktop(_ n: Int) -> KeyCombo? {
-        let id = 117 + n
-        return desktopIDs.contains(id) ? enabled()[id] : nil
-    }
+    /// What macOS uses when a shortcut was never edited: ctrl+N and ctrl+arrows.
+    private static let defaults: [Int: KeyCombo] = {
+        var d = [moveLeft: KeyCombo(keyCode: 0x7B, modifiers: .ctrl), moveRight: KeyCombo(keyCode: 0x7C, modifiers: .ctrl)]
+        for id in desktopIDs { if let code = Keys.code(for: String(id - 117)) { d[id] = KeyCombo(keyCode: code, modifiers: .ctrl) } }
+        return d
+    }()
 
     /// Types a shortcut as if from the keyboard, so the system (here, the Dock) acts on it.
     static func press(_ combo: KeyCombo) {

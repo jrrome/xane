@@ -21,13 +21,6 @@ public enum NewWindowOutput: String, Codable, CaseIterable, Sendable {
     case app
 }
 
-public enum DesktopMode: String, Codable, CaseIterable, Sendable {
-    /// XaneWM's own desktops (river/dwm tags) on one macOS Space: they switch instantly.
-    case tags
-    /// macOS Spaces: `view`/`tag` go through Mission Control and each Space tiles its own windows.
-    case spaces
-}
-
 public struct Options: Codable, Equatable, Sendable {
     public var innerGap: CGFloat = 8
     public var outerGap: CGFloat = 8
@@ -41,10 +34,8 @@ public struct Options: Codable, Equatable, Sendable {
     /// 0 = focus on entering a window; otherwise only once the pointer rests that long.
     public var focusFollowsMouseDelay: Double = 0
     public var mouseFollowsFocus = false
-    /// `view N` while already on N goes back to the previous tags.
-    public var viewBackAndForth = true
-    /// Focusing a window on a hidden tag (⌘-Tab, Dock click) switches to that tag.
-    public var followActivation = true
+    /// `desktop N` while already on N goes back to the desktop shown before.
+    public var desktopBackAndForth = true
     public var border = true
     public var borderWidth: CGFloat = 3
     /// "accent" or #RRGGBB / #RRGGBBAA.
@@ -54,7 +45,6 @@ public struct Options: Codable, Equatable, Sendable {
     public var edges = EdgeInsets.zero
     /// Re-assert the layout when an app moves or resizes a tiled window by itself.
     public var enforceLayout = true
-    public var desktops: DesktopMode = .tags
 
     public init() {}
 
@@ -71,8 +61,8 @@ public struct Options: Codable, Equatable, Sendable {
     public static let names = [
         "gap", "gap-inner", "gap-outer", "default-layout", "main-ratio", "attach", "overflow", "max-tiled",
         "new-window-output", "focus-follows-mouse", "focus-follows-mouse-delay", "mouse-follows-focus",
-        "view-back-and-forth", "follow-activation", "border", "border-width", "border-color", "border-radius",
-        "edges", "enforce-layout", "desktops",
+        "desktop-back-and-forth", "border", "border-width", "border-color", "border-radius",
+        "edges", "enforce-layout",
     ]
 
     /// `set <name> <values…>`
@@ -106,8 +96,7 @@ public struct Options: Codable, Equatable, Sendable {
         case "focus-follows-mouse": focusFollowsMouse = try bool()
         case "focus-follows-mouse-delay": focusFollowsMouseDelay = try num(0...2)
         case "mouse-follows-focus": mouseFollowsFocus = try bool()
-        case "view-back-and-forth": viewBackAndForth = try bool()
-        case "follow-activation": followActivation = try bool()
+        case "desktop-back-and-forth": desktopBackAndForth = try bool()
         case "border": border = try bool()
         case "border-width": borderWidth = CGFloat(try num(0...30))
         case "border-color":
@@ -127,7 +116,6 @@ public struct Options: Codable, Equatable, Sendable {
             default: throw Failure.invalid(name, values.joined(separator: " "))
             }
         case "enforce-layout": enforceLayout = try bool()
-        case "desktops": desktops = try pick(DesktopMode.self)
         default: throw Failure.unknown(name)
         }
     }

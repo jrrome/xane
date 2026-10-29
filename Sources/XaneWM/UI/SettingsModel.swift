@@ -13,11 +13,11 @@ final class SettingsModel: ObservableObject {
     }
 
     struct RuleRow: Identifiable, Equatable {
-        enum Action: String, CaseIterable { case float, tile, ignore, tags, output }
+        enum Action: String, CaseIterable { case float, tile, ignore, output }
         enum Match: String, CaseIterable { case appID = "app-id", appName = "app-name", title, subrole }
         let id = UUID()
         var action: Action = .float
-        /// Tag for `tags`, display index for `output`.
+        /// Display index for `output`.
         var number = 1
         var matchers: [(kind: Match, value: String)] = [(.appID, "")]
 
@@ -164,7 +164,6 @@ extension SettingsModel.RuleRow {
         case .float: action = .float
         case .tile: action = .tile
         case .ignore: action = .ignore
-        case .tags(let m): action = .tags; number = Tags.first(m) ?? 1
         case .output(let n): action = .output; number = n
         }
         matchers = rule.matchers.map { m in
@@ -184,7 +183,6 @@ extension SettingsModel.RuleRow {
         case .float: a = .float
         case .tile: a = .tile
         case .ignore: a = .ignore
-        case .tags: guard let m = Tags.mask(number) else { return nil }; a = .tags(m)
         case .output: guard number >= 1 else { return nil }; a = .output(number)
         }
         var ms: [Rule.Matcher] = []
