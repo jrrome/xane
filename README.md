@@ -139,7 +139,7 @@ macOS shortcut, XaneWM warns you in its menu, because macOS takes the key withou
 Options: `gap`, `gap-inner`, `gap-outer`, `default-layout`, `main-ratio`,
 `attach top|bottom|after-focused`, `overflow stack|float`, `max-tiled`,
 `new-window-output pointer|focused|app`, `focus-follows-mouse`, `focus-follows-mouse-delay`,
-`mouse-follows-focus`, `desktop-back-and-forth`, `border`, `border-width`,
+`mouse-follows-focus`, `desktop-back-and-forth`, `desktop-back-and-forth-cooldown`, `border`, `border-width`,
 `border-color accent|#RRGGBB`, `border-radius`, `edges <top right bottom left>`,
 `enforce-layout`.
 

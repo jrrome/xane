@@ -158,6 +158,9 @@ private struct GeneralPage: View {
             }
             Section("Desktops") {
                 Toggle("Pressing the current desktop goes back", isOn: model.flag(\.desktopBackAndForth, "desktop-back-and-forth"))
+                ValueSlider(title: "Only after being there for", value: model.number(\.desktopBackAndForthCooldown, "desktop-back-and-forth-cooldown", step: 0.05),
+                            range: 0...2, step: 0.05, unit: " s")
+                    .disabled(!model.options.desktopBackAndForth)
                 Note("Desktops are the macOS ones (Mission Control) and each tiles its own windows. ⌃1…9 jumps straight to a desktop once “Switch to Desktop N” is on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control; until then XaneWM gets there with “Move left/right a space”.")
             }
             Section("New windows") {

@@ -66,7 +66,8 @@ set new-window-output pointer     # pointer | focused | app
 set focus-follows-mouse on        # the window under the pointer gets focus
 set focus-follows-mouse-delay 0   # 0 = instant; >0 = only once the pointer rests that long (s)
 set mouse-follows-focus off
-set desktop-back-and-forth on     # ctrl+N on the desktop shown goes back to the one before
+set desktop-back-and-forth on     # ctrl+N on the desktop shown goes back to the one before…
+set desktop-back-and-forth-cooldown 0.75  # …once you have been there this long (s)
 set enforce-layout on             # put tiled windows back if an app moves them by itself
 # set edges 0 0 0 0               # reserve space for other bars: top right bottom left
 

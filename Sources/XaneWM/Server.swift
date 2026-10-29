@@ -58,6 +58,9 @@ final class Server: WorkerDelegate {
     /// pressed while it animates another one, so the next request waits here until it is over.
     private var heading: [String: (desktop: Int, until: TimeInterval)] = [:]
     private var queuedDesktop: [String: DesktopTarget] = [:]
+    /// When each display reached its desktop, or its key was last pressed again (the cooldown of
+    /// `desktop-back-and-forth`).
+    private var desktopSince: [String: TimeInterval] = [:]
     /// A window is being carried to another Space with synthetic mouse events: they are ours.
     private var carrying = false
 
@@ -315,6 +318,7 @@ final class Server: WorkerDelegate {
             let old = desktops[o.uuid]
             guard old?.current != shown else { continue }
             desktops[o.uuid] = (shown, old?.current ?? old?.previous)
+            desktopSince[o.uuid] = now
             if let n = shown { ipc?.broadcast("{\"desktop\":\(n),\"event\":\"desktop\",\"output\":\(o.id)}") }
         }
     }
@@ -329,7 +333,14 @@ final class Server: WorkerDelegate {
         let previous = desktops[uuid]?.previous
         switch t {
         case .number(let n):
-            return n == shown ? (compositor.current.options.desktopBackAndForth ? previous : nil) : n
+            guard n == shown else { return n }
+            let options = compositor.current.options
+            // Pressed again right away (a double press, a key held down): stay.
+            if now - (desktopSince[uuid] ?? 0) < options.desktopBackAndForthCooldown {
+                desktopSince[uuid] = now
+                return nil
+            }
+            return options.desktopBackAndForth ? previous : nil
         case .back: return previous
         // At either end there is nowhere to go, which is not an error.
         case .left, .right:
@@ -341,7 +352,12 @@ final class Server: WorkerDelegate {
 
     private func showDesktop(_ t: DesktopTarget, on display: String? = nil) throws {
         guard let uuid = display ?? focusedDisplay else { return }
-        if isSwitching(uuid) { queuedDesktop[uuid] = t; return }
+        if isSwitching(uuid) {
+            // Its key again while on the way there: the same press, not a request to go back.
+            if case .number(let n) = t, n == heading[uuid]?.desktop { return }
+            queuedDesktop[uuid] = t
+            return
+        }
         guard let n = resolve(t, on: uuid) else { return }
         SystemShortcuts.press(try switchKeys(to: n, on: uuid))
     }

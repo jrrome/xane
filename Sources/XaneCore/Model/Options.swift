@@ -36,6 +36,9 @@ public struct Options: Codable, Equatable, Sendable {
     public var mouseFollowsFocus = false
     /// `desktop N` while already on N goes back to the desktop shown before.
     public var desktopBackAndForth = true
+    /// Seconds on a desktop before pressing it again goes back: repeated presses of the same
+    /// desktop key do nothing (and restart the wait).
+    public var desktopBackAndForthCooldown: Double = 0.75
     public var border = true
     public var borderWidth: CGFloat = 3
     /// "accent" or #RRGGBB / #RRGGBBAA.
@@ -61,7 +64,7 @@ public struct Options: Codable, Equatable, Sendable {
     public static let names = [
         "gap", "gap-inner", "gap-outer", "default-layout", "main-ratio", "attach", "overflow", "max-tiled",
         "new-window-output", "focus-follows-mouse", "focus-follows-mouse-delay", "mouse-follows-focus",
-        "desktop-back-and-forth", "border", "border-width", "border-color", "border-radius",
+        "desktop-back-and-forth", "desktop-back-and-forth-cooldown", "border", "border-width", "border-color", "border-radius",
         "edges", "enforce-layout",
     ]
 
@@ -97,6 +100,7 @@ public struct Options: Codable, Equatable, Sendable {
         case "focus-follows-mouse-delay": focusFollowsMouseDelay = try num(0...2)
         case "mouse-follows-focus": mouseFollowsFocus = try bool()
         case "desktop-back-and-forth": desktopBackAndForth = try bool()
+        case "desktop-back-and-forth-cooldown": desktopBackAndForthCooldown = try num(0...5)
         case "border": border = try bool()
         case "border-width": borderWidth = CGFloat(try num(0...30))
         case "border-color":
