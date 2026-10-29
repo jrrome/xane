@@ -156,8 +156,8 @@ La config está en `~/.config/xanewm/config` y se crea comentada la primera vez.
 | `=` / `-` | más / menos ventanas principales (`tile`) |
 | `o` | rotar la orientación (`tile`) |
 | `0` | restablecer proporciones |
-| `1…9` | ver tag N (repetir vuelve al anterior) |
-| `⇧ + 1…9` | mover la ventana al tag N |
+| `⌃ 1…9` (solo ⌃, sin ⌥) | ver el escritorio (tag) N; repetir vuelve al anterior |
+| `⌃⇧ 1…9` (sin ⌥) | mover la ventana al escritorio N |
 | `tab` | tags anteriores |
 | `[` / `]` | foco a la pantalla anterior / siguiente (con `⇧`: mover la ventana) |
 | `r` / `⇧ r` | recolocar todo / recargar config |
@@ -206,6 +206,8 @@ xanectl rule tags 9 app-id com.spotify.client
 ## Límites conocidos
 
 - **No mueve ventanas entre Spaces nativos.** Eso exige APIs privadas de SkyLight. Usa tags y un solo Space por pantalla.
+- **La animación de los Spaces nativos no se puede quitar.** La hace el Dock, y saltársela exige desactivar SIP (como yabai). "Reducir movimiento" solo la cambia por un fundido. Los escritorios de XaneWM (`⌃1…9`) son tags: cambian al momento, sin animación.
+- **`⌃1…9` choca con "Ir al escritorio N"** de Mission Control si lo tienes activado: macOS se queda la tecla. Desactívalo en Ajustes del Sistema → Teclado → Atajos de teclado → Mission Control. XaneWM avisa en su menú cuando detecta un choque.
 - **Usa una única llamada privada:** `_AXUIElementGetWindow`, para dar a cada ventana una identidad estable compartida con `CGWindowList`. La usan yabai, AeroSpace, Amethyst y Rectangle, y lleva años estable. Todo lo demás es API pública y no necesita desactivar SIP.
 - **Stage Manager:** se pausa mientras está activo, igual que Shoji.
 - **Pantalla completa nativa:** la ventana se va a su propio Space y sale del mosaico. `fullscreen` (⌃⌥F) es la alternativa del compositor.

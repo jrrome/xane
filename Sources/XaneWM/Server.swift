@@ -178,6 +178,9 @@ final class Server: WorkerDelegate {
             }
             do { _ = try compositor.execute(cmd) } catch { errors.append("\(error)") }
         }
+        for combo in SystemShortcuts.conflicts(with: Set(compositor.pending.bindings.keys)) {
+            errors.append("\(combo) is taken by a macOS shortcut (System Settings → Keyboard → Keyboard Shortcuts)")
+        }
         statusBar.set(problems: errors)
         for e in errors { Log.main.error("Config: \(e, privacy: .public)") }
         syncInput()

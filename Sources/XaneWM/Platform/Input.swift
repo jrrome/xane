@@ -91,6 +91,36 @@ final class HotKeys {
     }
 }
 
+/// macOS's own shortcuts (System Settings → Keyboard → Keyboard Shortcuts) win over
+/// RegisterEventHotKey without any error, so a binding they share silently never fires.
+enum SystemShortcuts {
+    /// Enabled system shortcuts that use the same keys as one of `combos`.
+    static func conflicts(with combos: Set<KeyCombo>) -> [KeyCombo] {
+        let domain = "com.apple.symbolichotkeys" as CFString
+        CFPreferencesAppSynchronize(domain)
+        guard let all = CFPreferencesCopyAppValue("AppleSymbolicHotKeys" as CFString, domain) as? [String: Any] else { return [] }
+        var found = Set<KeyCombo>()
+        for case let entry as [String: Any] in all.values {
+            guard entry["enabled"] as? Bool == true,
+                  let value = entry["value"] as? [String: Any],
+                  let params = value["parameters"] as? [Int], params.count == 3, params[1] != 0xFFFF else { continue }
+            let combo = KeyCombo(keyCode: UInt32(params[1]), modifiers: modifiers(params[2]))
+            if combos.contains(combo) { found.insert(combo) }
+        }
+        return found.sorted { $0.description < $1.description }
+    }
+
+    /// NSEvent.ModifierFlags raw values, as stored in the preferences.
+    private static func modifiers(_ flags: Int) -> Modifiers {
+        var m: Modifiers = []
+        if flags & 0x20000 != 0 { m.insert(.shift) }
+        if flags & 0x40000 != 0 { m.insert(.ctrl) }
+        if flags & 0x80000 != 0 { m.insert(.alt) }
+        if flags & 0x100000 != 0 { m.insert(.cmd) }
+        return m
+    }
+}
+
 /// Pointer state. A pressed left button is the "grab" of Wayland's interactive move/resize: while it
 /// is held the compositor does not fight the user; on release it interprets what happened.
 final class MouseMonitor {
