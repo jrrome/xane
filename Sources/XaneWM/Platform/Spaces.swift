@@ -27,13 +27,35 @@ enum NativeSpaces {
 
     private typealias ConnectionFn = @convention(c) () -> Int32
     private typealias CopySpacesFn = @convention(c) (Int32) -> Unmanaged<CFArray>?
+    private typealias SpacesForWindowsFn = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
     private static let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
     private static let connection = skyLight.flatMap { dlsym($0, "SLSMainConnectionID") }
         .map { unsafeBitCast($0, to: ConnectionFn.self) }
     private static let copySpaces = skyLight.flatMap { dlsym($0, "SLSCopyManagedDisplaySpaces") }
         .map { unsafeBitCast($0, to: CopySpacesFn.self) }
 
+    private static let spacesForWindows = skyLight.flatMap { dlsym($0, "SLSCopySpacesForWindows") }
+        .map { unsafeBitCast($0, to: SpacesForWindowsFn.self) }
+
     static var isAvailable: Bool { connection != nil && copySpaces != nil }
+
+    /// Which of these windows live on a desktop some display shows right now. Unlike "on screen",
+    /// it does not flicker while the Dock animates a switch (when both desktops are on screen).
+    /// Windows the window server can't place (just created, or gone) come back as unknown.
+    static func onShownDesktops(_ ids: Set<WindowID>) -> (present: Set<WindowID>, unknown: Set<WindowID>)? {
+        guard let connection, let spacesForWindows else { return nil }
+        let cid = connection()
+        let shown = Set(displays().map(\.current))
+        guard !shown.isEmpty else { return ([], ids) }
+        var present = Set<WindowID>(), unknown = Set<WindowID>()
+        for id in ids {
+            // 7: every kind of Space (desktops, fullscreen apps, the ones the system keeps).
+            let spaces = (spacesForWindows(cid, 7, [NSNumber(value: id)] as CFArray)?.takeRetainedValue() as? [NSNumber]) ?? []
+            if spaces.isEmpty { unknown.insert(id) }
+            else if spaces.contains(where: { shown.contains($0.uint64Value) }) { present.insert(id) }
+        }
+        return (present, unknown)
+    }
 
     static func displays() -> [Display] {
         guard let connection, let copySpaces,

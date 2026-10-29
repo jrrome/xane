@@ -507,7 +507,7 @@ final class Server: WorkerDelegate {
         if presenceDirty {
             presenceDirty = false
             let ws = windowServerSnapshot()
-            compositor.setSpacePresence(onScreen: ws.onScreen, known: ws.all)
+            compositor.setSpacePresence(onScreen: presentWindows(ws), known: ws.all)
         }
         let t0 = now
         let before = compositor.current
@@ -800,9 +800,19 @@ final class Server: WorkerDelegate {
             compositor.removeWindow(w.id)
             workers[pid]?.forgetWindow(w.id)
         }
-        compositor.setSpacePresence(onScreen: ws.onScreen, known: ws.all)
+        compositor.setSpacePresence(onScreen: presentWindows(ws), known: ws.all)
         presenceDirty = false
         scheduleCommit()
+    }
+
+    /// Windows on the desktop each display shows. By Space membership when the window server
+    /// tells, so a desktop switch in progress (both desktops on screen) does not mix them up.
+    private func presentWindows(_ ws: WindowServer.Snapshot) -> Set<WindowID> {
+        guard let bySpace = NativeSpaces.onShownDesktops(compositor.windowIDs) else { return ws.onScreen }
+        // A window the window server can't place for a moment keeps what it had: falling back to
+        // "on screen" mid-switch is exactly what mixes both desktops up.
+        let keep = bySpace.unknown.filter { compositor.pending.windows[$0]?.onCurrentSpace ?? true }
+        return bySpace.present.union(keep)
     }
 
     private func forgetBookkeeping(_ id: WindowID) {

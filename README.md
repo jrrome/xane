@@ -249,7 +249,7 @@ distort `grid` with 4.
 - **Lost requests.** Every configure expires after 1.5 s. If reality does not match the request, the next commit resends it.
 - **Apps that fight back.** If a window is repositioned more than 4 times in 3 s, it is left alone for a while.
 - **Half-created windows.** They are re-examined after 0.2 s and 0.8 s, and again if they change size.
-- **Desktops are macOS Spaces.** Windows on other desktops keep their place in the model and are laid out again when you return. Windows above normal level (floating panels, overlays that show on every desktop) are left out of the layout. Native tabs just work: only the visible tab takes a tile.
+- **Desktops are macOS Spaces.** Which desktop a window is on comes from its Space, not from what is on screen, so a switch in progress never mixes two desktops. Windows on other desktops keep their place in the model and are laid out again when you return. Windows above normal level (floating panels, overlays that show on every desktop) are left out of the layout. Native tabs just work: only the visible tab takes a tile.
 - **Single instance** per socket. With `make autostart`, launchd restarts it if it crashes.
 - **Private logs.** App names are logged with `privacy: .private` and window titles are never logged.
 
@@ -285,7 +285,7 @@ screen lock and sleep, and the 28 pt cascade for whatever does not fit.
 
 - **Moving windows between desktops is a workaround.** The private call for it needs SIP off since macOS 14.5, so XaneWM drags the window by its title bar while it switches. A window with no title bar (or with a custom one) may not go along.
 - **The desktop switch animation cannot be removed.** The Dock performs it, and skipping it requires disabling SIP (as yabai does). "Reduce motion" swaps it for a shorter fade.
-- **Private calls:** `_AXUIElementGetWindow`, to give each window a stable identity shared with `CGWindowList` (yabai, AeroSpace, Amethyst and Rectangle use it, and it has been stable for years), and two read-only SkyLight calls to list the desktops. Everything else is public API and does not require disabling SIP.
+- **Private calls:** `_AXUIElementGetWindow`, to give each window a stable identity shared with `CGWindowList` (yabai, AeroSpace, Amethyst and Rectangle use it, and it has been stable for years), and three read-only SkyLight calls to list the desktops and tell which one each window is on. Everything else is public API and does not require disabling SIP.
 - **Stage Manager:** tiling pauses while it is active.
 - **Native fullscreen:** the window moves to its own Space and leaves the tiling. `fullscreen` (`⌃⌥ f`) is the compositor's alternative.
 - **Carbon hotkeys:** they do not work while another app uses Secure Input (password fields). This is a system restriction.
