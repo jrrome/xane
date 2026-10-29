@@ -46,6 +46,8 @@ final class Server: WorkerDelegate {
     private var busyRetry = Set<pid_t>()
     private var focusFallback: DispatchWorkItem?
     private var hover: DispatchWorkItem?
+    /// Managed window under the pointer at the last mouse move (instant focus-follows-mouse).
+    private var pointerWindow: WindowID?
     private var screenChange: DispatchWorkItem?
 
     private var windowServerCache: (at: TimeInterval, snapshot: WindowServer.Snapshot)?
@@ -408,6 +410,21 @@ final class Server: WorkerDelegate {
 
     private func pointerMoved() {
         guard compositor.current.options.focusFollowsMouse, !buttonDown, blockers.isEmpty else { return }
+        let delay = compositor.current.options.focusFollowsMouseDelay
+        if delay <= 0 {
+            // Instant (sway's focus_follows_mouse): focus on entering a window. Moving inside the
+            // same window does nothing, so ⌘-Tab elsewhere is not undone by the next nudge.
+            let p = Displays.pointer()
+            let target = compositor.window(at: p)
+            guard target != pointerWindow else { return }
+            guard let target, target != compositor.current.focused else { pointerWindow = target; return }
+            // Covered by a menu, the Dock, a popover…: try again on the next move.
+            guard !MouseMonitor.isLeftButtonDown,
+                  WindowServer.topWindow(at: p, excluding: getpid()) == target else { return }
+            pointerWindow = target
+            focus(target)
+            return
+        }
         hover?.cancel()
         let start = Displays.pointer()
         let work = DispatchWorkItem { [weak self] in

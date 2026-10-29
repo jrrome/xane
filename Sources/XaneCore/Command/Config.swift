@@ -63,7 +63,8 @@ set main-ratio 0.55
 set attach after-focused          # top | bottom | after-focused
 set overflow stack                # stack | float  (windows that don't fit)
 set new-window-output pointer     # pointer | focused | app
-set focus-follows-mouse off
+set focus-follows-mouse on        # the window under the pointer gets focus
+set focus-follows-mouse-delay 0   # 0 = instant; >0 = only once the pointer rests that long (s)
 set mouse-follows-focus off
 set view-back-and-forth on
 set follow-activation on          # ⌘-Tab to a window on a hidden tag shows that tag

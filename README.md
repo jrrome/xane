@@ -164,8 +164,9 @@ La config está en `~/.config/xanewm/config` y se crea comentada la primera vez.
 | `⇧ p` | pausar / reanudar |
 | `⇧ c` | cerrar ventana |
 
-Con el ratón: arrastra una ventana sobre otra para intercambiarlas, o a otra pantalla para moverla
-allí. Arrastra un borde para cambiar la proporción.
+Con el ratón: la ventana bajo el cursor recibe el foco al entrar en ella (`focus-follows-mouse`,
+instantáneo con `focus-follows-mouse-delay 0`). Arrastra una ventana sobre otra para intercambiarlas,
+o a otra pantalla para moverla allí. Arrastra un borde para cambiar la proporción.
 
 ### Comandos
 

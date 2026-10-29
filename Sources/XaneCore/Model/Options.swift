@@ -30,8 +30,9 @@ public struct Options: Codable, Equatable, Sendable {
     public var overflow: OverflowMode = .stack
     public var maxTiled: Int = 0
     public var newWindowOutput: NewWindowOutput = .pointer
-    public var focusFollowsMouse = false
-    public var focusFollowsMouseDelay: Double = 0.15
+    public var focusFollowsMouse = true
+    /// 0 = focus on entering a window; otherwise only once the pointer rests that long.
+    public var focusFollowsMouseDelay: Double = 0
     public var mouseFollowsFocus = false
     /// `view N` while already on N goes back to the previous tags.
     public var viewBackAndForth = true
