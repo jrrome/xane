@@ -1,0 +1,125 @@
+#if os(macOS)
+import AppKit
+import Carbon.HIToolbox
+import os
+import XaneCore
+
+enum Log {
+    // App names and frames are logged as private: they only show with `log config --mode private_data:on`.
+    static let main = Logger(subsystem: "dev.xanewm", category: "main")
+    static let tiling = Logger(subsystem: "dev.xanewm", category: "tiling")
+    static let events = Logger(subsystem: "dev.xanewm", category: "events")
+    static let input = Logger(subsystem: "dev.xanewm", category: "input")
+}
+
+/// Global key bindings via Carbon's RegisterEventHotKey: no Input Monitoring permission, no event
+/// tap in the input path, and the keystroke is consumed so it never reaches the focused app.
+final class HotKeys {
+    var onPress: ((KeyCombo) -> Void)?
+    private var refs: [KeyCombo: EventHotKeyRef] = [:]
+    private var byID: [UInt32: KeyCombo] = [:]
+    private var nextID: UInt32 = 1
+    private var handler: EventHandlerRef?
+    private(set) var failed: [KeyCombo: OSStatus] = [:]
+    static let signature: OSType = 0x58414E45   // 'XANE'
+
+    @discardableResult
+    func install() -> Bool {
+        guard handler == nil else { return true }
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        let me = Unmanaged.passUnretained(self).toOpaque()
+        let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+            guard let event, let userData else { return OSStatus(eventNotHandledErr) }
+            var hk = EventHotKeyID()
+            let err = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                        nil, MemoryLayout<EventHotKeyID>.size, nil, &hk)
+            guard err == noErr, hk.signature == HotKeys.signature else { return OSStatus(eventNotHandledErr) }
+            Unmanaged<HotKeys>.fromOpaque(userData).takeUnretainedValue().fire(hk.id)
+            return noErr
+        }, 1, &spec, me, &handler)
+        if status != noErr {
+            Log.input.error("Could not receive keyboard shortcuts (status \(status, privacy: .public))")
+        }
+        return status == noErr
+    }
+
+    private func fire(_ id: UInt32) {
+        guard let combo = byID[id] else { return }
+        onPress?(combo)
+    }
+
+    /// Makes the registered set equal to `wanted`.
+    func sync(_ wanted: Set<KeyCombo>) {
+        for combo in Array(refs.keys) where !wanted.contains(combo) { unregister(combo) }
+        failed = failed.filter { wanted.contains($0.key) }
+        // Combos that failed (taken by another app) are only retried by retryFailed().
+        for combo in wanted where refs[combo] == nil && failed[combo] == nil { register(combo) }
+    }
+
+    /// Retries the ones another app was holding.
+    func retryFailed() { for combo in Array(failed.keys) { register(combo) } }
+
+    private func register(_ combo: KeyCombo) {
+        var ref: EventHotKeyRef?
+        let id = nextID
+        nextID &+= 1
+        let status = RegisterEventHotKey(combo.keyCode, Self.carbonModifiers(combo.modifiers),
+                                         EventHotKeyID(signature: Self.signature, id: id),
+                                         GetApplicationEventTarget(), 0, &ref)
+        if status == noErr, let ref {
+            refs[combo] = ref
+            byID[id] = combo
+            failed[combo] = nil
+        } else {
+            failed[combo] = status
+            Log.input.error("Could not bind \(combo.description, privacy: .public) (status \(status, privacy: .public)); another app may be using it")
+        }
+    }
+
+    private func unregister(_ combo: KeyCombo) {
+        if let ref = refs.removeValue(forKey: combo) { _ = UnregisterEventHotKey(ref) }
+        byID = byID.filter { $0.value != combo }
+    }
+
+    static func carbonModifiers(_ m: Modifiers) -> UInt32 {
+        var r: UInt32 = 0
+        if m.contains(.cmd) { r |= UInt32(cmdKey) }
+        if m.contains(.shift) { r |= UInt32(shiftKey) }
+        if m.contains(.alt) { r |= UInt32(optionKey) }
+        if m.contains(.ctrl) { r |= UInt32(controlKey) }
+        return r
+    }
+}
+
+/// Pointer state. A pressed left button is the "grab" of Wayland's interactive move/resize: while it
+/// is held the compositor does not fight the user; on release it interprets what happened.
+final class MouseMonitor {
+    var onDown: (() -> Void)?
+    var onUp: (() -> Void)?
+    var onMove: (() -> Void)?
+    private var buttonMonitors: [Any] = []
+    private var moveMonitor: Any?
+
+    func start() {
+        guard buttonMonitors.isEmpty else { return }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] _ in self?.onDown?() }) {
+            buttonMonitors.append(m)
+        }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp, handler: { [weak self] _ in self?.onUp?() }) {
+            buttonMonitors.append(m)
+        }
+    }
+
+    /// Mouse-move tracking only while focus-follows-mouse is on (it wakes the process a lot).
+    func trackMoves(_ on: Bool) {
+        if on, moveMonitor == nil {
+            moveMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved, handler: { [weak self] _ in self?.onMove?() })
+        } else if !on, let m = moveMonitor {
+            NSEvent.removeMonitor(m)
+            moveMonitor = nil
+        }
+    }
+
+    static var isLeftButtonDown: Bool { NSEvent.pressedMouseButtons & 1 != 0 }
+}
+#endif
