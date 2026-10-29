@@ -264,6 +264,7 @@ final class AppWorker {
         s.hasDialogButtons = v[11] != nil && v[12] != nil
         s.hasDocument = (v[13] as? String).map { !$0.isEmpty } ?? false
         s.identifier = v[14] as? String ?? ""
+        s.cornerRadius = v[10].flatMap { Self.cornerRadius(window: s.frame, closeButton: $0) }
         s.isSizeSettable = AX.isSettable(el, "AXSize")
         s.isPositionSettable = AX.isSettable(el, "AXPosition")
         return s
@@ -323,6 +324,19 @@ final class AppWorker {
             }
             DispatchQueue.main.async { done(p) }
         }
+    }
+
+    /// On macOS 26 a window's corners are concentric with its traffic lights: the radius is about
+    /// the distance from the top-left corner to the middle of the close button (16 pt with a plain
+    /// title bar, 26 pt with a toolbar). Older systems use 10 pt corners whatever the buttons.
+    private static func cornerRadius(window: CGRect, closeButton: AnyObject) -> CGFloat? {
+        guard CFGetTypeID(closeButton) == AXUIElementGetTypeID(),
+              let b = frame(closeButton as! AXUIElement), !b.isEmpty else { return nil }
+        guard ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)) else {
+            return 10
+        }
+        let inset = min(b.midX - window.minX, b.midY - window.minY)
+        return (6...40).contains(inset) ? inset.rounded() : nil
     }
 
     private static func frame(_ el: AXUIElement) -> CGRect? {

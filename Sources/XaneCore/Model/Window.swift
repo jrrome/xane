@@ -26,6 +26,9 @@ public struct WindowSnapshot: Equatable, Sendable {
     public var isModal: Bool
     public var hasDialogButtons: Bool
     public var hasDocument: Bool
+    /// Corner radius of the window, when the platform can tell (macOS 26 draws corners concentric
+    /// with the traffic lights, so it follows from where the close button sits).
+    public var cornerRadius: CGFloat?
 
     public init(id: WindowID, pid: Int32, bundleID: String = "", appName: String = "", title: String = "",
                 role: String = "AXWindow", subrole: String = "AXStandardWindow", identifier: String = "",
@@ -76,6 +79,7 @@ public struct Window: Equatable, Sendable {
     /// On the current macOS Space (the window server lists it on screen).
     public var onCurrentSpace: Bool = true
     public var canResize: Bool = true
+    public var cornerRadius: CGFloat?
 
     /// Where a floating window lives when it is visible.
     public var floatingFrame: CGRect?

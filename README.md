@@ -140,7 +140,7 @@ Options: `gap`, `gap-inner`, `gap-outer`, `default-layout`, `main-ratio`,
 `attach top|bottom|after-focused`, `overflow stack|float`, `max-tiled`,
 `new-window-output pointer|focused|app`, `focus-follows-mouse`, `focus-follows-mouse-delay`,
 `mouse-follows-focus`, `desktop-back-and-forth`, `desktop-back-and-forth-cooldown`, `border`, `border-width`,
-`border-color accent|#RRGGBB`, `border-radius`, `edges <top right bottom left>`,
+`border-color accent|#RRGGBB`, `border-radius auto|N` (auto follows each window's corners), `edges <top right bottom left>`,
 `enforce-layout`.
 
 Keys: `ctrl alt shift cmd` (or `hyper` / `meh`) + `a-z 0-9 return space tab escape left right up down

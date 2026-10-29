@@ -257,7 +257,16 @@ private struct BorderPage: View {
                 Toggle("Border around the focused window", isOn: model.flag(\.border, "border"))
                 Group {
                     ValueSlider(title: "Width", value: model.number(\.borderWidth, "border-width"), range: 1...16)
-                    ValueSlider(title: "Corner radius", value: model.number(\.borderRadius, "border-radius"), range: 0...30)
+                    Toggle("Follow each window's corners", isOn: Binding(
+                        get: { model.options.borderRadius == nil },
+                        set: { on in model.option(\.borderRadius, "border-radius") { [$0.map { SettingsModel.format(Double($0)) } ?? "auto"] }
+                            .wrappedValue = on ? nil : 16 }))
+                    if model.options.borderRadius != nil {
+                        ValueSlider(title: "Corner radius", value: Binding(
+                            get: { Double(model.options.borderRadius ?? 16) },
+                            set: { v in model.option(\.borderRadius, "border-radius") { [$0.map { SettingsModel.format(Double($0)) } ?? "auto"] }
+                                .wrappedValue = CGFloat(v.rounded()) }), range: 0...30)
+                    }
                     Toggle("Use the accent colour", isOn: Binding(
                         get: { model.options.borderColor == "accent" },
                         set: { on in model.option(\.borderColor, "border-color") { [$0] }.wrappedValue = on ? "accent" : "#FFFFFF" }))

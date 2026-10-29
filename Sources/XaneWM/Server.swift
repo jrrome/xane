@@ -737,6 +737,7 @@ final class Server: WorkerDelegate {
             compositor.setMinimized(s.id, s.isMinimized)
             compositor.setNativeFullscreen(s.id, s.isNativeFullscreen)
             compositor.setTitle(s.id, s.title)
+            compositor.setCornerRadius(s.id, s.cornerRadius)
             presenceDirty = true
             scheduleCommit()
             return
@@ -747,7 +748,7 @@ final class Server: WorkerDelegate {
         let c = classify(s, rules: compositor.pending.rules)
         guard c.management != .ignore,
               compositor.addWindow(s, classification: c, pointer: Displays.pointer()) else { return }
-        Log.tiling.info("New window \(s.id, privacy: .public) of \(s.appName, privacy: .private): \(c.management.rawValue, privacy: .public) (\(c.reason, privacy: .public))")
+        Log.tiling.info("New window \(s.id, privacy: .public) of \(s.appName, privacy: .private): \(c.management.rawValue, privacy: .public) (\(c.reason, privacy: .public)), corners \(s.cornerRadius.map { "\(Int($0)) pt" } ?? "unknown", privacy: .public)")
         presenceDirty = true
         scheduleCommit()
     }
@@ -1020,7 +1021,7 @@ final class Server: WorkerDelegate {
             border.hide()
             return
         }
-        border.show(around: w.frame, below: id, width: s.options.borderWidth, radius: s.options.borderRadius,
+        border.show(around: w.frame, below: id, width: s.options.borderWidth, radius: s.options.borderRadius ?? w.cornerRadius ?? 16,
                     color: BorderOverlay.color(s.options.borderColor))
     }
 

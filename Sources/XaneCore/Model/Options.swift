@@ -43,7 +43,8 @@ public struct Options: Codable, Equatable, Sendable {
     public var borderWidth: CGFloat = 3
     /// "accent" or #RRGGBB / #RRGGBBAA.
     public var borderColor = "accent"
-    public var borderRadius: CGFloat = 12
+    /// nil: follow each window's own corners.
+    public var borderRadius: CGFloat?
     /// Reserved screen edges for other apps' bars/docks.
     public var edges = EdgeInsets.zero
     /// Re-assert the layout when an app moves or resizes a tiled window by itself.
@@ -106,7 +107,7 @@ public struct Options: Codable, Equatable, Sendable {
         case "border-color":
             guard v == "accent" || Options.parseHexColor(v) != nil else { throw Failure.invalid(name, v) }
             borderColor = v
-        case "border-radius": borderRadius = CGFloat(try num(0...60))
+        case "border-radius": borderRadius = v.lowercased() == "auto" ? nil : CGFloat(try num(0...60))
         case "edges":
             // edges <all> | <vertical> <horizontal> | <top> <right> <bottom> <left>  (CSS order)
             let n = try values.map { s -> CGFloat in

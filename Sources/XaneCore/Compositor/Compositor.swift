@@ -162,6 +162,7 @@ public final class Compositor {
         w.minimized = s.isMinimized
         w.nativeFullscreen = s.isNativeFullscreen
         w.canResize = s.isSizeSettable
+        w.cornerRadius = s.cornerRadius
         pending.windows[s.id] = w
 
         // Attach position in the tiling order.
@@ -202,6 +203,7 @@ public final class Compositor {
     public func setMinimized(_ id: WindowID, _ v: Bool) { fact(id) { $0.minimized = v } }
     public func setNativeFullscreen(_ id: WindowID, _ v: Bool) { fact(id) { $0.nativeFullscreen = v } }
     public func setTitle(_ id: WindowID, _ t: String) { fact(id) { $0.title = t } }
+    public func setCornerRadius(_ id: WindowID, _ r: CGFloat?) { fact(id) { $0.cornerRadius = r } }
 
     public func setAppHidden(pid: Int32, _ v: Bool) {
         let ids = pending.windows.values.filter { $0.pid == pid }.map(\.id)

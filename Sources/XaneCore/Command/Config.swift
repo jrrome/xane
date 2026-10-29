@@ -55,7 +55,7 @@ set gap-outer 8
 set border on
 set border-width 3
 set border-color accent
-set border-radius 12
+set border-radius auto            # auto = follow each window's corners, or a number
 
 # ── Behaviour ─────────────────────────────────────────────────────────────────
 set default-layout dwindle
