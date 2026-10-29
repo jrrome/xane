@@ -125,6 +125,10 @@ extension Compositor {
 
         // MARK: tags
         case .view(let arg):
+            if pending.options.desktops == .spaces {
+                guard case .mask(let m) = arg else { return [.viewSpace(nil)] }
+                return [.viewSpace(try singleDesktop(m))]
+            }
             guard let oid = pending.focusedOutput ?? pending.subjectOutput, var o = pending.outputs[oid] else { return [] }
             switch arg {
             case .previous:
@@ -142,6 +146,7 @@ extension Compositor {
             return refocus(on: oid)
 
         case .viewToggle(let m):
+            try requireTags("view-toggle")
             guard let oid = pending.focusedOutput ?? pending.subjectOutput, var o = pending.outputs[oid] else { return [] }
             let t = o.tags ^ m
             guard t != 0 else { return [] }
@@ -152,10 +157,12 @@ extension Compositor {
 
         case .tag(let m):
             guard let me = pending.subject, let w = pending.windows[me] else { throw CommandError.nothingToActOn }
+            if pending.options.desktops == .spaces { return [.moveToSpace(me, try singleDesktop(m))] }
             pending.windows[me]?.tags = m
             return pending.isVisible(me) ? [] : refocus(on: w.output)
 
         case .tagToggle(let m):
+            try requireTags("tag-toggle")
             guard let me = pending.subject, let w = pending.windows[me] else { throw CommandError.nothingToActOn }
             let t = w.tags ^ m
             guard t != 0 else { return [] }
@@ -232,6 +239,20 @@ extension Compositor {
         case .query(let what): return [.reply(query(what))]
         case .subscribe: return [.subscribe]
         case .exec(let c): return [.exec(c)]
+        }
+    }
+
+    /// A macOS Space shows one desktop at a time and a window lives on one.
+    private func singleDesktop(_ m: UInt32) throws -> Int {
+        guard m.nonzeroBitCount == 1, let n = Tags.first(m) else {
+            throw CommandError.invalidArgument("one desktop at a time with 'desktops spaces'")
+        }
+        return n
+    }
+
+    private func requireTags(_ command: String) throws {
+        guard pending.options.desktops == .tags else {
+            throw CommandError.invalidArgument("\(command) needs 'desktops tags'")
         }
     }
 

@@ -38,7 +38,8 @@ public struct State: Sendable {
 
     public func isVisible(_ w: Window) -> Bool {
         guard w.isPresent, let o = outputs[w.output] else { return false }
-        return w.tags & o.tags != 0
+        // With macOS Spaces the window server already hides the other desktops.
+        return options.desktops == .spaces || w.tags & o.tags != 0
     }
 
     /// Visible windows of an output in tiling order.

@@ -69,6 +69,7 @@ set mouse-follows-focus off
 set view-back-and-forth on
 set follow-activation on          # ⌘-Tab to a window on a hidden tag shows that tag
 set enforce-layout on             # put tiled windows back if an app moves them by itself
+set desktops tags                 # tags: XaneWM's own, instant | spaces: macOS desktops (animated)
 # set edges 0 0 0 0               # reserve space for other bars: top right bottom left
 
 # ── Rules (later rules win) ───────────────────────────────────────────────────
@@ -121,9 +122,10 @@ bind ctrl+alt+minus main-count -1
 bind ctrl+alt+o orientation next
 bind ctrl+alt+0 reset-layout
 
-# Desktops (tags): ctrl+N shows desktop N, ctrl+shift+N moves the focused window there.
-# Turn off "Switch to Desktop N" in System Settings → Keyboard → Keyboard Shortcuts →
-# Mission Control if it is on, or macOS keeps ctrl+N for itself.
+# Desktops: ctrl+N shows desktop N, ctrl+shift+N moves the focused window there.
+# With `desktops tags`, turn off "Switch to Desktop N" in System Settings → Keyboard →
+# Keyboard Shortcuts → Mission Control, or macOS keeps ctrl+N for itself.
+# With `desktops spaces`, turn those shortcuts on instead: XaneWM uses them.
 bind ctrl+1 view 1
 bind ctrl+2 view 2
 bind ctrl+3 view 3

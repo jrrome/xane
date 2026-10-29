@@ -312,6 +312,24 @@ final class AppWorker {
         }
     }
 
+    /// A point of the title bar that drags the window: halfway between the close and minimize
+    /// buttons (clear of rounded corners and of toolbar items). Delivered on the main queue.
+    func grabPoint(_ id: WindowID, _ done: @escaping (CGPoint?) -> Void) {
+        perform { [weak self] in
+            var p: CGPoint?
+            if let el = self?.windows[id], let close = AX.element(el, "AXCloseButton").flatMap(Self.frame) {
+                let next = AX.element(el, "AXMinimizeButton").flatMap(Self.frame)
+                p = CGPoint(x: next.map { (close.maxX + $0.minX) / 2 } ?? close.minX - 4, y: close.midY)
+            }
+            DispatchQueue.main.async { done(p) }
+        }
+    }
+
+    private static func frame(_ el: AXUIElement) -> CGRect? {
+        guard let p = AX.copy(el, "AXPosition").flatMap(AX.point), let s = AX.copy(el, "AXSize").flatMap(AX.size) else { return nil }
+        return CGRect(origin: p, size: s)
+    }
+
     func close(_ id: WindowID) {
         perform { [weak self] in
             guard let self, let el = self.windows[id], let button = AX.element(el, "AXCloseButton") else { return }

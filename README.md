@@ -37,7 +37,7 @@ xanectl query windows | jq
 ## Highlights
 
 - **Five layouts:** `dwindle`, `tile`, `columns`/`rows`, `grid` and `monocle`, solved exactly in closed form, respecting every app's minimum size.
-- **Tags instead of Spaces:** `⌃1…9` switches desktops instantly, with no Mission Control animation. View several tags at once or put a window on several.
+- **Tags instead of Spaces:** `⌃1…9` switches desktops instantly, with no Mission Control animation. View several tags at once or put a window on several. Prefer macOS desktops? `set desktops spaces` tiles each Space on its own.
 - **One command language** for the config file, the key bindings and the `xanectl` CLI, plus a JSON event stream for status bars.
 - **The compositor is in charge:** apps that move or resize their tiled windows on their own are put back.
 - **Built to never lose a window:** parked windows come back on quit and after a crash, and tags are restored across restarts.
@@ -114,6 +114,16 @@ bind ctrl+alt+t layout tile
 bind hyper+b exec open -a Safari
 ```
 
+#### macOS Spaces instead of tags
+
+With `set desktops spaces`, the desktops are the ones in Mission Control. Each Space tiles its own
+windows, `view N` (`⌃N`) shows desktop N and `tag N` (`⌃⇧N`) carries the focused window there.
+Turn on "Switch to Desktop N" in System Settings → Keyboard → Keyboard Shortcuts → Mission Control:
+XaneWM switches through those shortcuts, so the Dock's animation stays. To carry a window, XaneWM
+holds it by its title bar while it presses the shortcut, as Amethyst does: the pointer jumps for
+half a second and you go along with the window. A Space shows one desktop at a time, so
+`view-toggle` and `tag-toggle` are not available.
+
 Reload it with `xanectl reload` or `⌃⌥⇧ r`. If one of your bindings uses the same keys as an enabled
 macOS shortcut, XaneWM warns you in its menu, because macOS takes the key without reporting an error.
 
@@ -125,7 +135,7 @@ Options: `gap`, `gap-inner`, `gap-outer`, `default-layout`, `main-ratio`,
 `new-window-output pointer|focused|app`, `focus-follows-mouse`, `focus-follows-mouse-delay`,
 `mouse-follows-focus`, `view-back-and-forth`, `follow-activation`, `border`, `border-width`,
 `border-color accent|#RRGGBB`, `border-radius`, `edges <top right bottom left>`,
-`enforce-layout`.
+`enforce-layout`, `desktops tags|spaces`.
 
 Keys: `ctrl alt shift cmd` (or `hyper` / `meh`) + `a-z 0-9 return space tab escape left right up down
 comma period slash semicolon quote leftbracket rightbracket backslash minus equal grave f1-f20`.
@@ -269,10 +279,10 @@ screen lock and sleep, and the 28 pt cascade for whatever does not fit.
 
 ## Known limitations
 
-- **It does not move windows between native Spaces.** That requires private SkyLight APIs. Use tags and a single Space per display.
+- **Moving windows between native Spaces is a workaround.** The private call for it needs SIP off since macOS 14.5, so `desktops spaces` drags the window by its title bar while it switches. A window with no title bar (or with a custom one) may not go along.
 - **The native Spaces animation cannot be removed.** The Dock performs it, and skipping it requires disabling SIP (as yabai does). "Reduce motion" only swaps it for a fade. XaneWM desktops (`⌃1…9`) are tags: they switch instantly, with no animation.
-- **`⌃1…9` clashes with Mission Control's "Switch to Desktop N"** if you have it enabled: macOS keeps the key. Turn it off in System Settings → Keyboard → Keyboard Shortcuts → Mission Control. XaneWM warns in its menu when it detects a clash.
-- **It uses a single private call:** `_AXUIElementGetWindow`, to give each window a stable identity shared with `CGWindowList`. yabai, AeroSpace, Amethyst and Rectangle use it, and it has been stable for years. Everything else is public API and does not require disabling SIP.
+- **`⌃1…9` clashes with Mission Control's "Switch to Desktop N"** with `desktops tags` if you have it enabled: macOS keeps the key. Turn it off in System Settings → Keyboard → Keyboard Shortcuts → Mission Control. XaneWM warns in its menu when it detects a clash.
+- **It uses a single private call:** `_AXUIElementGetWindow`, to give each window a stable identity shared with `CGWindowList`. yabai, AeroSpace, Amethyst and Rectangle use it, and it has been stable for years. `desktops spaces` adds two read-only SkyLight calls to list the Spaces. Everything else is public API and does not require disabling SIP.
 - **Stage Manager:** tiling pauses while it is active.
 - **Native fullscreen:** the window moves to its own Space and leaves the tiling. `fullscreen` (`⌃⌥ f`) is the compositor's alternative.
 - **Carbon hotkeys:** they do not work while another app uses Secure Input (password fields). This is a system restriction.

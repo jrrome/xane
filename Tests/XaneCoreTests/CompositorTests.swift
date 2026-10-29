@@ -329,4 +329,22 @@ final class CompositorTests: XCTestCase {
         let ev = Compositor.events(from: a, to: c.current)
         XCTAssertTrue(ev.contains { $0.contains("\"tags\"") })
     }
+
+    func testSpacesModeHandsDesktopsToMacOS() throws {
+        add(1); add(2)
+        c.pending.windows[2]!.tags = Tags.mask(3)!
+        _ = try c.execute(.set("desktops", ["spaces"]))
+        // Tags no longer hide anything: the window server hides the other Spaces.
+        XCTAssertEqual(commitAndObey().hidden, 0)
+        c.systemFocused(1)
+        XCTAssertEqual(try c.execute(.view(.mask(Tags.mask(2)!))), [.viewSpace(2)])
+        XCTAssertEqual(try c.execute(.view(.previous)), [.viewSpace(nil)])
+        XCTAssertEqual(try c.execute(.tag(Tags.mask(4)!)), [.moveToSpace(1, 4)])
+        XCTAssertEqual(c.pending.windows[1]!.tags, 1)
+        XCTAssertThrowsError(try c.execute(.view(.mask(Tags.mask(1)! | Tags.mask(2)!))))
+        XCTAssertThrowsError(try c.execute(.viewToggle(Tags.mask(2)!)))
+        // A window on another Space is simply not there.
+        c.setSpacePresence(onScreen: [1], known: [1, 2])
+        XCTAssertEqual(c.pending.tiled(on: 1), [1])
+    }
 }

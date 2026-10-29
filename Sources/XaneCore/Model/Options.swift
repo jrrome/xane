@@ -21,6 +21,13 @@ public enum NewWindowOutput: String, Codable, CaseIterable, Sendable {
     case app
 }
 
+public enum DesktopMode: String, Codable, CaseIterable, Sendable {
+    /// XaneWM's own desktops (river/dwm tags) on one macOS Space: they switch instantly.
+    case tags
+    /// macOS Spaces: `view`/`tag` go through Mission Control and each Space tiles its own windows.
+    case spaces
+}
+
 public struct Options: Codable, Equatable, Sendable {
     public var innerGap: CGFloat = 8
     public var outerGap: CGFloat = 8
@@ -47,6 +54,7 @@ public struct Options: Codable, Equatable, Sendable {
     public var edges = EdgeInsets.zero
     /// Re-assert the layout when an app moves or resizes a tiled window by itself.
     public var enforceLayout = true
+    public var desktops: DesktopMode = .tags
 
     public init() {}
 
@@ -64,7 +72,7 @@ public struct Options: Codable, Equatable, Sendable {
         "gap", "gap-inner", "gap-outer", "default-layout", "main-ratio", "attach", "overflow", "max-tiled",
         "new-window-output", "focus-follows-mouse", "focus-follows-mouse-delay", "mouse-follows-focus",
         "view-back-and-forth", "follow-activation", "border", "border-width", "border-color", "border-radius",
-        "edges", "enforce-layout",
+        "edges", "enforce-layout", "desktops",
     ]
 
     /// `set <name> <values…>`
@@ -119,6 +127,7 @@ public struct Options: Codable, Equatable, Sendable {
             default: throw Failure.invalid(name, values.joined(separator: " "))
             }
         case "enforce-layout": enforceLayout = try bool()
+        case "desktops": desktops = try pick(DesktopMode.self)
         default: throw Failure.unknown(name)
         }
     }

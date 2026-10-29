@@ -94,20 +94,51 @@ final class HotKeys {
 /// macOS's own shortcuts (System Settings → Keyboard → Keyboard Shortcuts) win over
 /// RegisterEventHotKey without any error, so a binding they share silently never fires.
 enum SystemShortcuts {
-    /// Enabled system shortcuts that use the same keys as one of `combos`.
-    static func conflicts(with combos: Set<KeyCombo>) -> [KeyCombo] {
+    /// "Switch to Desktop 1…9" in the Mission Control section.
+    static let desktopIDs = 118...126
+
+    /// Enabled system shortcuts by symbolic hot key id.
+    static func enabled() -> [Int: KeyCombo] {
         let domain = "com.apple.symbolichotkeys" as CFString
         CFPreferencesAppSynchronize(domain)
-        guard let all = CFPreferencesCopyAppValue("AppleSymbolicHotKeys" as CFString, domain) as? [String: Any] else { return [] }
-        var found = Set<KeyCombo>()
-        for case let entry as [String: Any] in all.values {
-            guard entry["enabled"] as? Bool == true,
-                  let value = entry["value"] as? [String: Any],
-                  let params = value["parameters"] as? [Int], params.count == 3, params[1] != 0xFFFF else { continue }
-            let combo = KeyCombo(keyCode: UInt32(params[1]), modifiers: modifiers(params[2]))
-            if combos.contains(combo) { found.insert(combo) }
+        guard let all = CFPreferencesCopyAppValue("AppleSymbolicHotKeys" as CFString, domain) as? [String: Any] else { return [:] }
+        var out: [Int: KeyCombo] = [:]
+        for case let (key, entry as [String: Any]) in all {
+            guard let id = Int(key), entry["enabled"] as? Bool == true else { continue }
+            if let value = entry["value"] as? [String: Any], let params = value["parameters"] as? [Int], params.count == 3 {
+                guard params[1] != 0xFFFF else { continue }
+                out[id] = KeyCombo(keyCode: UInt32(params[1]), modifiers: modifiers(params[2]))
+            } else if desktopIDs.contains(id), let code = Keys.code(for: String(id - 117)) {
+                // Turned on but never edited: the default is ctrl+N.
+                out[id] = KeyCombo(keyCode: code, modifiers: .ctrl)
+            }
         }
-        return found.sorted { $0.description < $1.description }
+        return out
+    }
+
+    /// Enabled system shortcuts that use the same keys as one of `combos`, with their ids.
+    static func conflicts(with combos: Set<KeyCombo>) -> [(combo: KeyCombo, id: Int)] {
+        enabled().filter { combos.contains($0.value) }.map { (combo: $0.value, id: $0.key) }
+            .sorted { $0.combo.description < $1.combo.description }
+    }
+
+    static func desktop(_ n: Int) -> KeyCombo? {
+        let id = 117 + n
+        return desktopIDs.contains(id) ? enabled()[id] : nil
+    }
+
+    /// Types a shortcut as if from the keyboard, so the system (here, the Dock) acts on it.
+    static func press(_ combo: KeyCombo) {
+        var flags: CGEventFlags = []
+        if combo.modifiers.contains(.ctrl) { flags.insert(.maskControl) }
+        if combo.modifiers.contains(.alt) { flags.insert(.maskAlternate) }
+        if combo.modifiers.contains(.shift) { flags.insert(.maskShift) }
+        if combo.modifiers.contains(.cmd) { flags.insert(.maskCommand) }
+        for down in [true, false] {
+            guard let e = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(combo.keyCode), keyDown: down) else { continue }
+            e.flags = flags
+            e.post(tap: .cghidEventTap)
+        }
     }
 
     /// NSEvent.ModifierFlags raw values, as stored in the preferences.
