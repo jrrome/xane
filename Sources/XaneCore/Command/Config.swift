@@ -123,6 +123,7 @@ bind ctrl+alt+0 reset-layout
 # Desktops (macOS Spaces): ctrl+N shows desktop N, ctrl+shift+N carries the focused window there.
 # With "Switch to Desktop N" on (System Settings → Keyboard → Keyboard Shortcuts → Mission
 # Control) macOS jumps straight there; otherwise XaneWM steps with "Move left/right a space".
+# ctrl+N for the desktop after the last one asks you to press it again, and then creates it.
 bind ctrl+1 desktop 1
 bind ctrl+2 desktop 2
 bind ctrl+3 desktop 3

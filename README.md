@@ -86,7 +86,7 @@ All default bindings use the `⌃⌥` prefix, except desktops.
 | `⌃⌥ =` / `-` | More / fewer main windows (`tile`) |
 | `⌃⌥ o` | Rotate the orientation (`tile`) |
 | `⌃⌥ 0` | Reset ratios |
-| `⌃ 1…9` | Show desktop N; pressing it again goes back to the previous one |
+| `⌃ 1…9` | Show desktop N; pressing it again goes back to the previous one. For the desktop after the last one, a second press creates it |
 | `⌃⇧ 1…9` | Carry the window to desktop N |
 | `⌃⌥ tab` | Previous desktop |
 | `⌃⌥ [` / `]` | Focus the previous / next display (with `⇧`: move the window) |
@@ -129,6 +129,11 @@ through the Mission Control shortcuts, so the Dock does the switch: with "Switch
 otherwise it steps with "Move left/right a space" (`⌃←` `⌃→`, on by default). To carry a window,
 XaneWM holds it by its title bar while it switches, as Amethyst does: the pointer jumps for half a
 second and you go along with the window.
+
+`desktop N` for the desktop after the last one shows "Press ⌃N again to create Desktop N" for a
+couple of seconds. Pressing it again adds it to the focused display and goes there: XaneWM opens
+Mission Control and clicks its "+" (Mission Control shows nothing through accessibility, so the
+click goes by position). One further away is only reported missing.
 
 Reload it with `xanectl reload` or `⌃⌥⇧ r`. If one of your bindings uses the same keys as an enabled
 macOS shortcut, XaneWM warns you in its menu, because macOS takes the key without reporting an error.

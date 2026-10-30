@@ -62,6 +62,68 @@ final class BorderOverlay {
     }
 }
 
+/// A short message in the middle of a display that goes away by itself, like Chrome's
+/// "Hold ⌘Q to quit". Click-through, and it never takes focus.
+final class Toast {
+    private var window: NSPanel?
+    private let label = NSTextField(labelWithString: "")
+    private var fade: DispatchWorkItem?
+
+    /// `display` in window-server coordinates.
+    func show(_ text: String, on display: CGRect, for seconds: TimeInterval) {
+        let w = window ?? makeWindow()
+        label.stringValue = text
+        let size = label.intrinsicContentSize
+        let box = CGSize(width: ceil(size.width) + 48, height: ceil(size.height) + 28)
+        let frame = CGRect(x: display.midX - box.width / 2, y: display.midY - box.height / 2, width: box.width, height: box.height)
+        w.setFrame(Displays.toCocoa(frame), display: true)
+        label.frame = CGRect(x: 24, y: (box.height - size.height) / 2, width: ceil(size.width), height: ceil(size.height))
+        if !w.isVisible { w.alphaValue = 0 }
+        w.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { $0.duration = 0.12; w.animator().alphaValue = 1 }
+        fade?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.hide() }
+        fade = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    func hide() {
+        fade?.cancel()
+        fade = nil
+        guard let w = window, w.isVisible else { return }
+        NSAnimationContext.runAnimationGroup({ $0.duration = 0.25; w.animator().alphaValue = 0 }) {
+            if w.alphaValue == 0 { w.orderOut(nil) }
+        }
+    }
+
+    private func makeWindow() -> NSPanel {
+        let w = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        w.isOpaque = false
+        w.backgroundColor = .clear
+        w.hasShadow = true
+        w.ignoresMouseEvents = true
+        w.isReleasedWhenClosed = false
+        w.level = .statusBar
+        w.animationBehavior = .none
+        w.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle, .fullScreenAuxiliary]
+        w.appearance = NSAppearance(named: .darkAqua)
+        let background = NSVisualEffectView()
+        background.material = .hudWindow
+        background.state = .active
+        background.blendingMode = .behindWindow
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 12
+        background.layer?.cornerCurve = .continuous
+        background.layer?.masksToBounds = true
+        label.font = .systemFont(ofSize: 17, weight: .medium)
+        label.textColor = .white
+        background.addSubview(label)
+        w.contentView = background
+        window = w
+        return w
+    }
+}
+
 /// Menu bar item: focused desktop and layout at a glance, quick switches and the settings window.
 final class StatusBar: NSObject, NSMenuDelegate {
     /// What the menu shows checked, read each time it opens.

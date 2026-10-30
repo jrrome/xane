@@ -13,6 +13,7 @@ final class Server: WorkerDelegate {
     private let hotkeys = HotKeys()
     private let mouse = MouseMonitor()
     private let border = BorderOverlay()
+    private let toast = Toast()
     private let statusBar = StatusBar()
     private let permissions = Permissions()
     private let store = Store()
@@ -61,6 +62,9 @@ final class Server: WorkerDelegate {
     /// When each display reached its desktop, or its key was last pressed again (the cooldown of
     /// `desktop-back-and-forth`).
     private var desktopSince: [String: TimeInterval] = [:]
+    /// `desktop N` for a desktop that does not exist yet: pressed again before `until`, it is added.
+    private var offeredDesktop: (desktop: Int, until: TimeInterval)?
+    private var addingDesktop = false
     /// A window is being carried to another Space with synthetic mouse events: they are ours.
     private var carrying = false
 
@@ -351,7 +355,7 @@ final class Server: WorkerDelegate {
     }
 
     private func showDesktop(_ t: DesktopTarget, on display: String? = nil) throws {
-        guard let uuid = display ?? focusedDisplay else { return }
+        guard let uuid = display ?? focusedDisplay, !addingDesktop else { return }
         if isSwitching(uuid) {
             // Its key again while on the way there: the same press, not a request to go back.
             if case .number(let n) = t, n == heading[uuid]?.desktop { return }
@@ -359,7 +363,52 @@ final class Server: WorkerDelegate {
             return
         }
         guard let n = resolve(t, on: uuid) else { return }
+        if case .number(n) = t, NativeSpaces.isAvailable, n > NativeSpaces.desktopCount {
+            offerDesktop(n, on: uuid)
+            return
+        }
         SystemShortcuts.press(try switchKeys(to: n, on: uuid))
+    }
+
+    /// The first press for the desktop after the last one says how to add it, like "Hold ⌘Q to
+    /// quit"; pressing it again while that shows adds it and goes there. Mission Control takes
+    /// one new desktop at a time, so one further away is only reported missing.
+    private func offerDesktop(_ n: Int, on uuid: String) {
+        guard let frame = compositor.current.outputs.values.first(where: { $0.uuid == uuid })?.frame else { return }
+        let wait = 2.5
+        guard n == NativeSpaces.desktopCount + 1 else {
+            toast.show("There is no Desktop \(n)", on: frame, for: wait)
+            return
+        }
+        if let o = offeredDesktop, o.desktop == n, now < o.until {
+            offeredDesktop = nil
+            toast.hide()
+            addDesktop(on: uuid, frame: frame)
+            return
+        }
+        offeredDesktop = (n, now + wait)
+        let key = compositor.pending.bindings.filter { $0.value == "desktop \(n)" }.keys.min { $0.description < $1.description }
+        toast.show("\(key.map { "Press \($0.symbols)" } ?? "Run “desktop \(n)”") again to create Desktop \(n)", on: frame, for: wait)
+    }
+
+    private func addDesktop(on uuid: String, frame: CGRect) {
+        addingDesktop = true
+        block("adding a desktop")
+        NativeSpaces.addDesktop(on: frame) { [weak self] error in
+            guard let self else { return }
+            self.addingDesktop = false
+            self.unblock("adding a desktop")
+            do {
+                if let error { throw error }
+                // Mission Control adds it after this display's desktops: desktop N with one
+                // display, the one just made in any case.
+                guard let last = NativeSpaces.desktops(on: uuid)?.range.upperBound else { return }
+                try self.showDesktop(.number(last), on: uuid)
+            } catch {
+                NSSound.beep()
+                Log.input.error("desktop: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     /// The keys that take a display to desktop `n`; notes the switch as under way until macOS

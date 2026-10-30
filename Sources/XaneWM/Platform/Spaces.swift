@@ -17,10 +17,11 @@ enum NativeSpaces {
     }
 
     enum Failure: Error, CustomStringConvertible {
-        case unavailable, noDesktop(Int), shortcutOff(Int)
+        case unavailable, noDesktop(Int), shortcutOff(Int), cannotAdd
         var description: String {
             switch self {
             case .unavailable: return "this macOS does not expose its Spaces"
+            case .cannotAdd: return "could not add a desktop through Mission Control"
             case .noDesktop(let n): return "there is no desktop \(n) (add it in Mission Control)"
             case .shortcutOff(let n):
                 return "turn on “Switch to Desktop \(n)” (or “Move left/right a space”) in System Settings → Keyboard → Keyboard Shortcuts → Mission Control"
@@ -39,6 +40,10 @@ enum NativeSpaces {
 
     private static let spacesForWindows = skyLight.flatMap { dlsym($0, "SLSCopySpacesForWindows") }
         .map { unsafeBitCast($0, to: SpacesForWindowsFn.self) }
+
+    private typealias DockNotifyFn = @convention(c) (CFString, Int32) -> Int32
+    private static let dockNotify = dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_LAZY)
+        .flatMap { dlsym($0, "CoreDockSendNotification") }.map { unsafeBitCast($0, to: DockNotifyFn.self) }
 
     static var isAvailable: Bool { connection != nil && copySpaces != nil }
 
@@ -114,6 +119,70 @@ enum NativeSpaces {
             base += d.desktops.count
         }
         throw Failure.shortcutOff(n)
+    }
+
+    /// Adds a desktop to a display the way a person does: opens Mission Control and clicks its "+"
+    /// at the top right of the display. The private call for it needs SIP off, and Mission Control
+    /// shows nothing of itself through accessibility (macOS 27), so the click goes by position. It
+    /// waits on the Dock, so it runs off the main thread; `done` gets the error back on it.
+    static func addDesktop(on display: CGRect, done: @escaping (Error?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var failure: Error?
+            do { try addDesktopNow(on: display) } catch { failure = error }
+            DispatchQueue.main.async { done(failure) }
+        }
+    }
+
+    private static func addDesktopNow(on display: CGRect) throws {
+        guard dockNotify != nil,
+              let pid = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first?.processIdentifier
+        else { throw Failure.cannotAdd }
+        let dock = AXUIElementCreateApplication(pid)
+        let start = desktopCount
+        let back = CGEvent(source: nil)?.location
+        toggleMissionControl()
+        defer {
+            if missionControl(dock) != nil { toggleMissionControl() }
+            if let back { click(at: back, press: false) }
+            // The next switch has to wait for Mission Control to be gone, or the Dock drops it.
+            _ = waitFor(2) { missionControl(dock) == nil ? true : nil }
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+        guard waitFor(2, { missionControl(dock) }) != nil else { throw Failure.cannotAdd }
+        Thread.sleep(forTimeInterval: 0.5)   // its opening animation
+        // Collapsed, "+" sits at the top right; under the pointer the bar grows (with an
+        // animation) and it moves down to the middle of the thumbnails.
+        click(at: CGPoint(x: display.maxX - 26, y: display.minY + 20), press: false)
+        Thread.sleep(forTimeInterval: 0.6)
+        click(at: CGPoint(x: display.maxX - 28, y: display.minY + display.height * 0.087), press: true)
+        guard waitFor(1.5, { desktopCount > start ? true : nil }) != nil else { throw Failure.cannotAdd }
+    }
+
+    /// The pointer to `p` and, with `press`, a click there.
+    private static func click(at p: CGPoint, press: Bool) {
+        let types: [CGEventType] = press ? [.mouseMoved, .leftMouseDown, .leftMouseUp] : [.mouseMoved]
+        for t in types {
+            CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// What Mission Control.app does (opening the app again while it is still running does nothing).
+    private static func toggleMissionControl() {
+        if let send = dockNotify { _ = send("com.apple.expose.awake" as CFString, 0) }
+    }
+
+    private static func waitFor<T>(_ seconds: TimeInterval, _ probe: () -> T?) -> T? {
+        let end = Date().addingTimeInterval(seconds)
+        repeat {
+            if let found = probe() { return found }
+            Thread.sleep(forTimeInterval: 0.05)
+        } while Date() < end
+        return nil
+    }
+
+    /// Mission Control is open while the Dock shows its (otherwise empty) "mc" group.
+    private static func missionControl(_ dock: AXUIElement) -> AXUIElement? {
+        (AX.copy(dock, kAXChildrenAttribute) as? [AXUIElement])?.first { AX.copy($0, kAXIdentifierAttribute) as? String == "mc" }
     }
 }
 #endif
