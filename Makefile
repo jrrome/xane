@@ -30,7 +30,7 @@ app: build
 	rm -rf $(APP)
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
-	cp Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png $(APP)/Contents/Resources/
+	cp Resources/AppIcon.icns Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png $(APP)/Contents/Resources/
 	cp $(BUILD)/XaneWM $(APP)/Contents/MacOS/XaneWM
 	cp $(BUILD)/xanectl $(APP)/Contents/MacOS/xanectl
 	codesign --force --sign "$(SIGN_ID)" --options runtime $(APP)/Contents/MacOS/xanectl
